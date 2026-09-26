@@ -5,9 +5,18 @@ description: 物理实验数据全流程——手写记录纸照片转录成原�
 
 # 物理实验数据处理流程
 
-一个实验 = `<unit>` 下的一个子文件夹（如 `1.杨氏模量/`），数据放它的 `实验数据/` 子目录。
-本 skill 的脚本在 `.claude/skills/lab-data-workflow/scripts/`，模板在 `templates/`。
-**下面所有路径都相对 `<unit>`**（即 `D:\文件\教材\物理实验`）。
+一个实验 = `<实验目录>` 下的一个子文件夹（如 `1.杨氏模量/`），数据放它的 `实验数据/` 子目录。
+
+全文用 `<SKILL>` 代表**本 SKILL.md 所在的目录**，用 `<实验目录>` 代表实验数据的总目录。
+两者是**两个不同的地方**，别把脚本路径拼到实验目录下面去：
+
+```bash
+# 先定位 skill（包装在项目里 / 装成全局，两种见 README）
+ls <SKILL>/scripts/           # 应能看到 prep_photo.py csv_tables.py to_utf8.py selftest.py
+# Windows 例：<SKILL> = .claude\skills\lab-data-workflow 或 %USERPROFILE%\.agents\skills\lab-data-workflow
+```
+
+下面除"输出到照片同目录"这类明确说明外，路径都相对 `<实验目录>`。
 
 ## 现在该做哪一步
 
@@ -28,21 +37,39 @@ description: 物理实验数据全流程——手写记录纸照片转录成原�
 整张手写照片直接读会糊。**必须**先切块，否则一定读错数字。
 
 ```bash
-# 总览：看版面有哪几张表、有没有转 90 度
-python .claude/skills/lab-data-workflow/scripts/prep_photo.py 照片.jpg
+# 总览：看版面有哪几张表、有没有转 90 度。脚本会打印缩放比，先记住它
+python <SKILL>/scripts/prep_photo.py 照片.jpg
 
-# 照片躺倒时转正（--rotate 走的是 PIL 的逆时针角度，im.rotate(90) 就是逆时针 90°）
-# 躺倒的照片先试 90，出来还是躺的就试 -90
-python .claude/skills/lab-data-workflow/scripts/prep_photo.py 照片.jpg --rotate 90 --split
+# 放大某张表：最稳的是量出总览图上两点的比例(0~1)，跟分辨率、缩放都无关
+python <SKILL>/scripts/prep_photo.py 照片.jpg --crop 0.11,0.53,0.59,0.62 --coord rel --zoom 1.6
 
-# 放大某张表：坐标在总览图上量，单位是原图像素
-python .claude/skills/lab-data-workflow/scripts/prep_photo.py 照片.jpg --rotate 90 --crop 330,1600,1760,1850 --zoom 1.6
+# 有像素坐标工具时，也可以直接给**总览图**上的像素（别超过总览图自己的尺寸，超了会警告）
+python <SKILL>/scripts/prep_photo.py 照片.jpg --crop 330,600,900,700 --coord overview --zoom 1.6
 
-# 字迹淡/照片发灰时加 --region autolevel（去背景+提对比度，效果很明显）
-python .claude/skills/lab-data-workflow/scripts/prep_photo.py 照片.jpg --crop 430,1330,2960,1960 --zoom 1.2 --region autolevel
+# 真的躺倒时才转正（--rotate 是 PIL 的逆时针角度，90 就是逆时针 90°；只收 90 的倍数）
+python <SKILL>/scripts/prep_photo.py 照片.jpg --rotate -90 --split
+
+# 字迹淡/照片发灰时加 --region autolevel（去背景+提对比度）
+python <SKILL>/scripts/prep_photo.py 照片.jpg --crop 0.12,0.44,0.90,0.61 --coord rel --zoom 1.2 --region autolevel
 ```
 
-产物写到照片同目录的 `_prep/`。**裁切是唯一可靠的办法**——一眼扫过去读宏观表，数字一律靠裁切图逐个确认。
+坐标只有三套，别混：
+
+| `--coord` | 量的地方 | 什么时候用 |
+|---|---|---|
+| `rel` | 总览图上按比例估（0~1） | **首选**，跟分辨率/缩放无关，最不容易错 |
+| `overview` | 总览图像素 | 有像素坐标工具时 |
+| `orig` | 原图像素（转正后） | 默认值，手工量原图时才用 |
+
+要点：
+
+- 手机竖拍的照片脚本会**按 EXIF 自动转正**并打印一行说明。"躺倒"多半是 EXIF 没被认，先看有没有那行提示，别急着 `--rotate`。
+- 总览是原图长边缩到 `--max-side`（默认 1600）的那张。脚本会打印 `总览 = 原图 x0.533; 在总览上量的坐标 x1.875 才是原图坐标`——这就是为什么直接拿总览坐标当 `orig` 用一定会裁错。
+- **脚本的警告不要忽略**。坐标被裁到图外会打印 `警告: 裁切区域 … 超出图片 …`，那说明坐标量错了（或者忘了 `--coord`）。忽略它就会拿到一张"看着正常"的错图，然后读错数字。
+- 产物写到照片同目录的 `_prep/`，文件名带裁切区域，不同裁切不会互相覆盖（`…_c330-600-900-700_x1.6_crop.jpg`）。
+- `--crop` 和 `--split` 互斥；`--zoom` 只对 `--crop` 生效，用错会直接报错/警告。
+
+**裁切是唯一可靠的办法**——一眼扫过去读宏观表，数字一律靠裁切图逐个确认。
 
 ### 1.2 读的纪律
 
@@ -55,16 +82,20 @@ python .claude/skills/lab-data-workflow/scripts/prep_photo.py 照片.jpg --crop 
 ### 1.3 写 CSV
 
 ```bash
-# 检查/转换编码：Excel 中文版另存的是 GBK，其它工具打开乱码
-python .claude/skills/lab-data-workflow/scripts/to_utf8.py --check 1.杨氏模量/实验数据/
-python .claude/skills/lab-data-workflow/scripts/to_utf8.py 1.杨氏模量/实验数据/   # 就地转 UTF-8 BOM，原文件备份 .gbk.bak
-python .claude/skills/lab-data-workflow/scripts/to_utf8.py --clean 1.杨氏模量/实验数据/   # 确认无误后删备份
+# 检查编码。--check 是 dry-run，一个字都不改，放前放后都行；需要转换时退出码 1
+python <SKILL>/scripts/to_utf8.py --check 1.杨氏模量/实验数据/
+python <SKILL>/scripts/to_utf8.py 1.杨氏模量/实验数据/          # 就地转 UTF-8 BOM，原文件备份 .gbk.bak
+python <SKILL>/scripts/to_utf8.py --clean 1.杨氏模量/实验数据/   # 确认无误后删备份(按后缀全盘找, 改名后的孤儿也删得到)
 ```
+
+转换时会打印"转出来长这样: …"。**瞄一眼那一行**。碰上"按 UTF-8 和按 GBK 都读得通"的字节，
+脚本**不猜**：它会把两种读法都打出来并拒绝转换（退出码 1），你确认哪个对，再加
+`--assume gbk` 或 `--assume utf8` 重跑。
 
 用 `csv_tables.py` 写，它自动加 BOM + CRLF：
 
 ```python
-import sys; sys.path.insert(0, r'.claude/skills/lab-data-workflow/scripts')
+import sys; sys.path.insert(0, r'<SKILL>/scripts')   # 换成实际路径
 import csv_tables as ct
 
 ct.write('1.杨氏模量/实验数据/2_霍尔法.csv',
@@ -79,16 +110,24 @@ ct.write('1.杨氏模量/实验数据/2_霍尔法.csv',
 ```
 
 ```bash
-# 检查写完的 CSV 能不能正确解析
-python .claude/skills/lab-data-workflow/scripts/csv_tables.py 1.杨氏模量/实验数据/2_霍尔法.csv
+# 检查写完的 CSV 能不能正确解析（有问题退出码 1）
+python <SKILL>/scripts/csv_tables.py 1.杨氏模量/实验数据/2_霍尔法.csv
 ```
 
 **CSV 里只存记录纸上的手写原值，不做任何单位换算。** 零点修正、单位换算全部留给 §3 的脚本。
 这条是整个流程的核心纪律：一旦在数据文件里预先换算，就会出现"同一个量在两个文件里单位不同"，
 而且事后无法从文件本身看出来（实际踩过：宽度 22.16 mm 被写成 0.2216）。
 
-分段标记 `# ---- 名称 ----` 后面第一行是表头，其余是数据行。空格子留空表示记录纸上没有，
-读出来是 `None`，不要填 0。
+配套的三条硬规矩（脚本会直接报错，不是建议）：
+
+- **格子里只写字符串**，写 `'23.60'` 不写 `23.60`。传 float 会被拒绝：`23.60` 丢有效位变 `23.6`，
+  `0.1+0.2` 会写出 `0.30000000000000004`。
+- **不填 0**。空格子留空表示记录纸上没有，读出来是 `None`；填 0 会被当成一次真实读数。
+- **别把批注写进数据格子**。`row()/col()` 遇到"有值但读不成数字"的格子会直接报错——那是读错/写错
+  的值，不能和"记录纸上没有"混为一谈。
+
+分段标记 `# ---- 名称 ----` 后面第一行是表头，其余是数据行。同名分段会报错（拒绝静默覆盖），
+某行比表头列少会带行号警告并按空格子补齐（否则 `zip` 会静默截断，逐差法就少算几组）。
 
 ---
 
@@ -101,13 +140,13 @@ python .claude/skills/lab-data-workflow/scripts/csv_tables.py 1.杨氏模量/实
 - 单位/批注的判断
 
 同时产出一份放大图目录（把 §1.1 的裁切图按表名重命名归档），用户核对时比翻原照片快得多。
-确认后把结论写回文档（README 的"修正"一节 + CSV 表头注释），再进 §3。
+确认后把结论写回记录（该实验目录的 README 或 CSV 表头注释），再进 §3。
 
 ---
 
 ## §3 处理脚本
 
-一个实验一个 `处理.py`，放在 `<unit>/<实验>/实验数据/`。结构固定：
+一个实验一个 `处理.py`，放在 `<实验目录>/<实验>/实验数据/`。结构固定：
 
 ```python
 # 1. 顶部「约定」区：所有修正和仪器误差集中在这里，每条注明出处
@@ -123,13 +162,16 @@ Z_PLUS = 100.0                      # 鼓轮过一圈, 旁注 "(+100)"
 
 要点：
 
+- **读原始数据一律走 `csv_tables.row()/col()`**：格子空着给 `None`，格子有值但读不成数字会直接报错。
+  别自己 `open()` + `float()`——那等于把 §1 的核对白做一遍，错字会静默变成 `None`。
+  标签有歧义（`长度d` 同时命中 `长度d/cm` 和 `长度d/mm`）也会报错，写全标签。
 - **不确定度把两种取法都打出来**：`u_B = e/√3` 和 `u_B = e`。指导书一般没规定 A/B 类取法，
   做成顶部开关 `DIVISOR_B`，两种结果的最终值都打印，用户按老师要求选。
 - **仪器误差要问用户**，指导书经常没写。按行标注"按常用仪器取值，待确认"，别默默假设。
 - 逐差法配对时**用实际差值**，不要假设等间隔——实测质量常不是严格等差（如 19.9/40.0/60.5…）。
 - 拟合求极值（如外推法的曲线最低点）时，**报告模型间的差异**：二次拟合顶点 vs 两支直线交点
   给出的结果可能差 1 Hz 量级，这比仪器不确定度大得多。
-- 跑完把脚本输出连同一句话结论给用户。
+- 跑完把脚本输出连同一句话结论给用户（`print` 中文没有编码问题，脚本在被捕获时自动切 UTF-8）。
 
 ---
 
@@ -152,13 +194,14 @@ Z_PLUS = 100.0                      # 鼓轮过一圈, 旁注 "(+100)"
 从模板起步，改内容：
 
 ```bash
-cp .claude/skills/lab-data-workflow/templates/report.typ 1.杨氏模量/实验数据/实验报告.typ
+cp <SKILL>/templates/report.typ 1.杨氏模量/实验数据/实验报告.typ
+# 模板里的 figure 段默认是注释掉的（图还没出时 image() 会直接报文件找不到），出图后再取消注释
 # 改完之后编译（typst 0.15 已验证；跑一遍即可，交叉引用自动解析）
 cd 1.杨氏模量/实验数据 && typst compile 实验报告.typ
 ```
 
 模板里已经有：三线表 `#bt()`、单位 `#u("mm")`、表格居中、中文字体、公式编号。
-图放在报告同目录，用 `#figure(image("fig1.png", width: 55%), caption: [...])`。
+图放在报告同目录，把注释掉的那段改成 `#figure(image("fig1.png", width: 55%), caption: [...])`。
 
 排版调不下页数时按这个顺序收：图宽 → `leading` → 页边距 → 结果表加
 `#block(breakable: false, ...)` 防止跨页。
@@ -187,18 +230,38 @@ cd 1.杨氏模量/实验数据 && typst compile 实验报告.typ
 - **Typst 表格单元格里写 `"字符串"` 不会当标记解析**，`$公式$` 会原样印出来。
   必须写内容块：`([序号 $i$], [$M\/"g"$])`。
 - **Typst 的 `%` 不是注释**（注释是 `//` 和 `/* */`），所以 `6.72%` 可以直接写。
+- **Typst 的 `image()` 找不到文件就直接编译失败**，所以模板里的 figure 段默认注释着。
 - **PDF 文字提取会打乱分数**：指导书里 `E = d³Mg/(4a³bΔZ)` 的 4 在分母，
   文字提取会把它提到分子位置。**公式一律渲染原页图片核对**，别信提取的文本。
+- **照片"躺倒"先怀疑 EXIF**：手机竖拍的照片像素是横的、靠 EXIF 标记转正，相册里看着是正的。
+  `prep_photo.py` 会 `exif_transpose` 自动转正并打印一行说明；没那行提示才是真躺倒，再 `--rotate`。
+- **裁切坐标有三套单位**（原图 / 总览图 / 0~1 比例），这是最容易读错数字的一步。
+  默认按原图算，在总览上量的一定要加 `--coord overview`，否则裁出来的图"看着正常"但是错的。
+- **原始数据 CSV 只收字符串**：`write()` 拒绝 float（`23.60` 会变 `23.6`，`0.1+0.2` 会写成
+  `0.30000000000000004`）；读的时候"有值但读不成数字"会直接报错，不再静默变 `None`。
 - 长图路径里带中文时，桌面端的文件面板打不开，让用户自己开。
 - Python 是 Windows 版，`/tmp/...` 这种路径它不认，脚本里用相对路径或完整 Windows 路径。
+- **别用 `python -c "…中文…"`**：GBK 控制台下命令行参数会把中文源码本身弄坏（实测 SyntaxError）。
+  一律写成 `.py` 文件再跑（文件是 UTF-8，Python 按 UTF-8 读源码，稳）。
 
 ## 排查
 
 | 现象 | 原因 / 处理 |
 |---|---|
-| 中文显示成 `���` | 文件是 GBK。跑 `to_utf8.py` |
+| 打开 CSV 的中文是乱码 | 文件是 GBK。跑 `to_utf8.py` |
+| `to_utf8.py` 打印"两种读法都通" | 这段字节 UTF-8 / GBK 都读得通。看它打出的两行预览挑对的，加 `--assume gbk` 或 `--assume utf8` |
+| `to_utf8.py` 报"已有备份，保留不动" | 正常：最早那份 `.gbk.bak` 不会被后来的覆盖，要还原就用它 |
+| 脚本**屏幕输出**的中文是 `���` | 输出被管道/agent 捕获时脚本会自己切 UTF-8；还乱就加 `PYTHONUTF8=1` |
 | 打开 CSV 第一列多了个 `\ufeff序号` | 读的时候用了 `utf-8` 而不是 `utf-8-sig` |
 | 读 CSV 报"有一行不在分段之内" | 缺 `# ---- 名称 ----` 标记 |
-| `csv_tables.py` 报"没有 BOM" | 文件被 Excel 另存过了，重跑 `to_utf8.py` |
-| Typst 编译报字体缺失 | 改 `.typ` 第 3 行的字体名；`typst fonts` 看有哪些中文字体 |
+| 读 CSV 报"分段名重复" | 两个同名 `# ---- X ----`，改名（以前是静默丢掉前一段） |
+| 读 CSV 报"这行 N 列, 表头只有 M 列" | 值里有逗号。把逗号去掉，或拆成两段 |
+| 警告"只有 N 列, 表头 M 列, 末尾按空格子补齐" | 行尾少写了格子。补齐不会报错，但 `zip` 会静默少几组，尽快补 |
+| 读 CSV 报"格子 '…' 读不成数字" | 数据格子里混了批注/错字，或那一位本来就读错了。回去看裁切图 |
+| 警告"没有 BOM" | 文件被 Excel 另存过了，重跑 `to_utf8.py`（纯 ASCII 文件不会警告） |
+| 警告"裁切区域超出图片" | 坐标量错了，或忘了 `--coord overview`。**别忽略**，裁错了就会读错数字 |
+| 报"裁切区域是空的/完全在图片外" | `--crop` 的四个数是 x0,y0,x1,y1，确认没写反 |
+| Typst 编译报找不到 `fig1.png` | 图还没出就取消注释了 figure 段；先出图，或再注释回去 |
+| Typst 编译报字体缺失 | 改 `.typ` 里 `#set text(font: ...)` 那行的字体名；`typst fonts` 看有哪些中文字体 |
 | 报告页尾大片空白 | 图太大被挤到下一页。缩图宽，或给表格加 `#block(breakable: false)` |
+| 拿不准脚本有没有改坏数据 | 跑 `python <SKILL>/scripts/selftest.py`，它把上面这些边界情况全测一遍 |

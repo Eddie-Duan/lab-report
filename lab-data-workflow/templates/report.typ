@@ -1,10 +1,12 @@
 // 物理实验报告 Typst 模板
 //   编译: typst compile 报告.typ        (跑一遍即可, 交叉引用自动解析)
-//   字体: 用系统字体, Windows 下 SimSun/SimHei 一定有; 换机器改第 3 行的字体名
+//   字体: 用系统字体, Windows 下 SimSun/SimHei 一定有;
+//         换机器改下面 "#set text(font: ...)" 那行(别照行号找, 内容一改行号就漂了)
 //   图:   同目录放 fig1.png 之类, 用 #figure(image("fig1.png", width: 60%), caption: [...])
+//         模板里那段 figure 默认是注释掉的 —— 图还没生成时 image() 会直接报文件找不到
 //
 // 已验过的坑:
-//   * 表格默认齐左, 加第 9 行的 show table 规则才会居中
+//   * 表格默认齐左, 加下面 "#show table:" 那条规则才会居中
 //   * bar(x) 在 Typst 里是竖线符号, 不是上划线! 均值要用 overline(x)
 //   * 单位用 #u("mm"), 它自带一点间距; 直接写 $... "mm"$ 会贴着数字
 
@@ -83,10 +85,11 @@ $ Y = (4 M g L) / (pi d^2 Delta L) $
 
 $ Y = (4 M g L) / (pi d^2 overline(Delta l)) = 2.63 times 10^11#u("N/m")^2 $
 
-#figure(
-  image("fig1.png", width: 55%),
-  caption: [某量关系图],
-)
+// 图: 出图后把这段取消注释, 文件名改成实际的 fig1.png
+// #figure(
+//   image("fig1.png", width: 55%),
+//   caption: [某量关系图],
+// )
 
 = 实验结果
 
