@@ -5,6 +5,25 @@ description: 物理实验数据全流程——手写记录纸照片转录成原�
 
 # 物理实验数据处理流程
 
+## 材料优先级：冲突时一律以用户上传/说明的为准
+
+**课程要求和模板每年会变。** 本 skill 自带的模板、`sample/` 里的材料和往年报告全是**往年**的东西，
+只能当默认值，不能当规矩。优先级从高到低：
+
+1. **用户本次上传或口头说明的模板、要求、格式**（今年发的 docx / PDF / 截图 / 一句话"今年要写思考题"）
+2. 用户自己的旧报告、`sample/` 里的范例与模板
+3. 本 skill 自带的 `templates/report.typ`、`experiments.json`、UI 默认选项 —— 只是兜底
+
+具体做法：
+
+- 动手写报告前先确认"今年用的是哪份模板/要求"。用户没提就问一句；提了就以它为准，**不要**再拿
+  `sample/` 里的旧模板去覆盖。
+- 冲突时（分节名称与顺序、报告头字段、要不要写思考题、字体字号、页数要求）**不要自己挑一个执行**，
+  按用户的来；如果用户给的材料本身前后矛盾，把矛盾点指出来问，别默默选。
+- 用户临时提的新要求**只对本次有效**，不要写回 skill 当默认值，除非用户明确说"以后都这样"。
+- 反过来，用户上传了新版模板时，可以顺手提醒一句"`sample/模板/` 里那份是往年的，要不要保留"——
+  但决定权在用户。
+
 一个实验 = `<实验目录>` 下的一个子文件夹（如 `1.杨氏模量/`），数据放它的 `实验数据/` 子目录。
 
 全文用 `<SKILL>` 代表**本 SKILL.md 所在的目录**，用 `<实验目录>` 代表实验数据的总目录。
@@ -12,7 +31,8 @@ description: 物理实验数据全流程——手写记录纸照片转录成原�
 
 ```bash
 # 先定位 skill（包装在项目里 / 装成全局，两种见 README）
-ls <SKILL>/scripts/           # 应能看到 prep_photo.py csv_tables.py to_utf8.py selftest.py
+ls <SKILL>/scripts/           # 应能看到 prep_photo.py csv_tables.py to_utf8.py make_report.py selftest.py
+ls <SKILL>/ui/                # server.py index.html —— §0 的报告头界面
 # Windows 例：<SKILL> = .claude\skills\lab-data-workflow 或 %USERPROFILE%\.agents\skills\lab-data-workflow
 ```
 
@@ -22,11 +42,51 @@ ls <SKILL>/scripts/           # 应能看到 prep_photo.py csv_tables.py to_utf8
 
 | 用户说 | 做 |
 |---|---|
+| "开始做某个实验""填报告头" | §0 开界面 |
 | 刚放了照片 | §1 转录 |
 | "核对一下""看看对不对" | §2 |
 | "算一下""处理数据" | §3 |
-| "写报告""出 PDF" | §4 |
+| "写报告""出 PDF" | §4（正文） |
 | "攻击/审阅报告" | §5 |
+
+## §0 先开界面把报告头填了
+
+报告头那堆字段（实验名/姓名/教师/日期/分组座号/地点…）不用手抄进 `.typ`/`.tex`/`.docx`。开本地界面填一次：
+
+```bash
+python <SKILL>/ui/server.py --root <实验目录>     # 默认 http://127.0.0.1:8722
+```
+
+界面里能填：**实验名称**（从 `experiments.json` 的 20 个往年实验名里搜，也能自己写）、
+**输出格式**（Typst / LaTeX / Word / Markdown）、学生姓名、教师姓名、实验日期（这三项可留空）、
+学号、分班分组及座号、实验地点、同组人员、记录纸照片、补充文件、补充说明。
+
+生成到 `<实验目录>/<实验>/实验数据/`：
+
+| 产物 | 说明 |
+|---|---|
+| `实验报告.typ` / `.tex` / `.docx` / `.md` | 报告头已填好、分节留空的骨架 |
+| `报告参数.json` | 报告头字段的机器可读版本，**写正文前先读它**，别再从界面抄一遍 |
+| `照片/`、`补充文件/` | 上传的文件归档处（同名同内容不会重复堆） |
+
+不想开界面就用命令行，等价：
+
+```bash
+python <SKILL>/scripts/make_report.py --list                    # 看实验名清单
+python <SKILL>/scripts/make_report.py --exp 测量金属的杨氏模量 --fmt latex \
+    --name 张三 --teacher 李四 --date 2026-09-26 --group 1-04-5 \
+    --notes "今年要求写思考题" --file 数据表.csv --photo IMG_1.jpg --root <实验目录>
+```
+
+要点：
+
+- **骨架只有报告头 + 分节标题，正文一句都没有。** 正文按 §4.1 的文风自己写；模板里那几句示例
+  （`目的之一`、`某量 $x=12.3$`）是占位符，定稿前删干净。
+- 报告头版式与分节顺序是**默认值**（Word 那份直接拿官方报告头 docx 当容器，LaTeX 那份取自学长模板的
+  导言区与报告头）。当年要求不同就以用户的为准 —— 见开头「材料优先级」。
+- 同一实验**换格式不会互相覆盖**（`实验报告.tex` 和 `实验报告.docx` 并存）；同格式重生成要显式勾
+  "覆盖已有报告"，免得把写好的正文冲掉。
+- 生成完再进 §1 转录、§3 算数据，最后把结果填进骨架、编译出 PDF（§4.2）。
 
 ---
 
@@ -191,17 +251,31 @@ Z_PLUS = 100.0                      # 鼓轮过一圈, 旁注 "(+100)"
 
 ### 4.2 出 PDF
 
-从模板起步，改内容：
+§0 已经生成好骨架了（`实验报告.typ` 或 `.tex`），直接改内容再编译：
+
+```bash
+# Typst 那条路（要装 typst）
+cd 1.杨氏模量/实验数据 && typst compile 实验报告.typ
+# 模板里的 figure 段默认注释着 —— 图还没出时 image() 会直接报文件找不到，出图后再取消注释
+
+# LaTeX 那条路（要装 TeX 发行版，本机有 MiKTeX）
+cd 1.杨氏模量/实验数据 && latexmk -xelatex 实验报告.tex     # 或 xelatex 跑两遍
+```
+
+没走过 §0 也可以直接从模板起步：
 
 ```bash
 cp <SKILL>/templates/report.typ 1.杨氏模量/实验数据/实验报告.typ
-# 模板里的 figure 段默认是注释掉的（图还没出时 image() 会直接报文件找不到），出图后再取消注释
-# 改完之后编译（typst 0.15 已验证；跑一遍即可，交叉引用自动解析）
-cd 1.杨氏模量/实验数据 && typst compile 实验报告.typ
+cp <SKILL>/templates/latex/main.tex 1.杨氏模量/实验数据/实验报告.tex
 ```
 
-模板里已经有：三线表 `#bt()`、单位 `#u("mm")`、表格居中、中文字体、公式编号。
+Typst 模板里已经有：三线表 `#bt()`、单位 `#u("mm")`、表格居中、中文字体、公式编号、报告头变量。
 图放在报告同目录，把注释掉的那段改成 `#figure(image("fig1.png", width: 55%), caption: [...])`。
+
+LaTeX 模板的导言区**只留了本机确实装着的包**（`xelatex` 验证过能编出 1 页 PDF）。原始那份导言区更全，
+但里面 `circuitikz`、`pdfpages`、`algorithm`、`mathtools`、`siunitx`、`mdframed`、`wrapfig`、`fontsize`、
+`adjustbox`、`breqn`、`mathrsfs`、`amsthm` 这些本机没装；要用就加回去，MiKTeX 会自动联网装
+（`mpm --install=circuitikz` 也行）。`subfigure` 已废弃，已换成 `subcaption`。
 
 排版调不下页数时按这个顺序收：图宽 → `leading` → 页边距 → 结果表加
 `#block(breakable: false, ...)` 防止跨页。
@@ -263,5 +337,8 @@ cd 1.杨氏模量/实验数据 && typst compile 实验报告.typ
 | 报"裁切区域是空的/完全在图片外" | `--crop` 的四个数是 x0,y0,x1,y1，确认没写反 |
 | Typst 编译报找不到 `fig1.png` | 图还没出就取消注释了 figure 段；先出图，或再注释回去 |
 | Typst 编译报字体缺失 | 改 `.typ` 里 `#set text(font: ...)` 那行的字体名；`typst fonts` 看有哪些中文字体 |
+| LaTeX 编译报缺包（如 `circuitikz.sty not found`） | 导言区只留了本机装着的包；要用别的先 `mpm --install=<包>`，或让 MiKTeX 联网自动装 |
+| 界面里选了 Typst 却编译不了 | 本机没装 typst（界面上会标"本机没装工具"）；装 typst，或改选 LaTeX / Word |
 | 报告页尾大片空白 | 图太大被挤到下一页。缩图宽，或给表格加 `#block(breakable: false)` |
+| 生成的报告头字段是空的 | 正常：留空的字段在报告里画成下划线空格，想填就在界面里补上再生成 |
 | 拿不准脚本有没有改坏数据 | 跑 `python <SKILL>/scripts/selftest.py`，它把上面这些边界情况全测一遍 |

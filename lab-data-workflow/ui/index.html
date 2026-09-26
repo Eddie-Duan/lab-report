@@ -1,0 +1,318 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>实验报告生成器</title>
+<style>
+  :root {
+    --bg: #f6f7f9;
+    --card: #ffffff;
+    --ink: #1c1f23;
+    --ink-soft: #5c6672;
+    --line: #dfe3e8;
+    --accent: #1f6f6b;
+    --accent-soft: #e8f2f1;
+    --warn: #8a5a00;
+    --warn-bg: #fff7e6;
+    --err: #a4262c;
+    --err-bg: #fdeced;
+    --ok: #1b6b3a;
+    --ok-bg: #eaf6ee;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 28px 20px 64px;
+    background: var(--bg); color: var(--ink);
+    font: 15px/1.6 "Segoe UI", -apple-system, "Microsoft YaHei", "PingFang SC", sans-serif;
+  }
+  main { max-width: 880px; margin: 0 auto; }
+  h1 { font-size: 22px; margin: 0 0 4px; letter-spacing: .5px; }
+  .sub { color: var(--ink-soft); margin: 0 0 20px; font-size: 13.5px; }
+  .note {
+    background: var(--warn-bg); border: 1px solid #f0dcae; color: var(--warn);
+    border-radius: 8px; padding: 10px 14px; font-size: 13.5px; margin: 0 0 22px;
+  }
+  fieldset {
+    background: var(--card); border: 1px solid var(--line); border-radius: 10px;
+    padding: 16px 18px 18px; margin: 0 0 16px;
+  }
+  legend { font-weight: 600; font-size: 14px; padding: 0 6px; color: var(--ink); }
+  .hint { color: var(--ink-soft); font-size: 12.5px; font-weight: 400; }
+  label { display: block; font-size: 13.5px; margin-bottom: 6px; }
+  .grid { display: grid; gap: 14px; }
+  .g3 { grid-template-columns: repeat(3, 1fr); }
+  .g2 { grid-template-columns: repeat(2, 1fr); }
+  @media (max-width: 700px) { .g3, .g2 { grid-template-columns: 1fr; } }
+  input[type=text], input[type=date], textarea, select {
+    width: 100%; padding: 8px 10px; font: inherit; color: inherit; background: #fff;
+    border: 1px solid var(--line); border-radius: 7px;
+  }
+  input[type=text]:focus-visible, input[type=date]:focus-visible,
+  textarea:focus-visible, select:focus-visible, .fmt:focus-within, button:focus-visible {
+    outline: 2px solid var(--accent); outline-offset: 1px;
+  }
+  textarea { resize: vertical; min-height: 76px; }
+  .fmt-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
+  @media (max-width: 700px) { .fmt-row { grid-template-columns: repeat(2, 1fr); } }
+  .fmt {
+    border: 1px solid var(--line); border-radius: 9px; padding: 11px 12px;
+    cursor: pointer; background: #fff; transition: border-color .12s, background .12s;
+  }
+  .fmt:hover { border-color: #b9c2cc; }
+  .fmt input { margin-right: 7px; }
+  .fmt b { font-size: 14px; }
+  .fmt span { display: block; color: var(--ink-soft); font-size: 12px; margin-top: 3px; }
+  .fmt:has(input:checked) { border-color: var(--accent); background: var(--accent-soft); }
+  input[type=file] { font: inherit; font-size: 13.5px; }
+  .files { list-style: none; margin: 10px 0 0; padding: 0; font-size: 13px; }
+  .files li {
+    display: flex; align-items: center; gap: 8px; padding: 5px 9px; margin-bottom: 5px;
+    background: #f2f4f6; border-radius: 6px;
+  }
+  .files li .sz { color: var(--ink-soft); font-size: 12px; margin-left: auto; font-variant-numeric: tabular-nums; }
+  .files li button {
+    border: none; background: none; color: var(--err); cursor: pointer;
+    font-size: 13px; padding: 2px 4px; border-radius: 4px;
+  }
+  .files li.pending { color: var(--ink-soft); font-style: italic; }
+  .row-between { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .check { display: flex; align-items: center; gap: 7px; font-size: 13.5px; }
+  button.primary {
+    font: inherit; font-weight: 600; color: #fff; background: var(--accent);
+    border: none; border-radius: 8px; padding: 11px 26px; cursor: pointer;
+  }
+  button.primary:disabled { opacity: .55; cursor: progress; }
+  button.ghost {
+    font: inherit; font-size: 13.5px; background: #fff; color: var(--ink);
+    border: 1px solid var(--line); border-radius: 7px; padding: 7px 14px; cursor: pointer;
+  }
+  #result { margin-top: 18px; }
+  .box { border-radius: 9px; padding: 14px 16px; font-size: 13.5px; }
+  .box.ok { background: var(--ok-bg); border: 1px solid #bfe0c9; color: var(--ok); }
+  .box.err { background: var(--err-bg); border: 1px solid #f3c2c5; color: var(--err); }
+  .box code { background: rgba(0,0,0,.05); padding: 1px 5px; border-radius: 4px; word-break: break-all; }
+  .box ul { margin: 8px 0 0; padding-left: 20px; color: var(--ink); }
+  .box .next { color: var(--ink); margin-top: 10px; }
+  details summary { cursor: pointer; font-weight: 600; font-size: 14px; }
+  details[open] summary { margin-bottom: 14px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>实验报告生成器</h1>
+  <p class="sub">填报告头和材料，生成到 <code>&lt;实验目录&gt;/&lt;实验&gt;/实验数据/</code>，正文由 agent 按 skill 流程续写。</p>
+
+  <p class="note">
+    <b>模板/要求以你当年拿到的为准。</b> 这里的版式是按往年材料整理的默认值；如果今年的报告头、分节或要求不一样，
+    直接上传今年那份，或在「补充说明」里写清楚 —— 冲突时一律听你的。
+  </p>
+
+  <form id="f" autocomplete="off">
+    <fieldset>
+      <legend>实验名称 <span class="hint">（输几个字就能从清单里筛，也可以自己写一个）</span></legend>
+      <div class="grid g2">
+        <div>
+          <label for="exp">实验名称</label>
+          <input type="text" id="exp" name="exp" list="exp-list" placeholder="例如：测量金属的杨氏模量" required>
+          <datalist id="exp-list"></datalist>
+        </div>
+        <div>
+          <label for="dir">实验子目录名 <span class="hint">（默认自动填）</span></label>
+          <input type="text" id="dir" name="dir" placeholder="1.杨氏模量">
+        </div>
+      </div>
+    </fieldset>
+
+    <fieldset>
+      <legend>输出格式</legend>
+      <div class="fmt-row" id="fmt-row"></div>
+    </fieldset>
+
+    <fieldset>
+      <legend>报告头 <span class="hint">（这三项可以留空，会留成下划线空格）</span></legend>
+      <div class="grid g3">
+        <div><label for="student">学生姓名</label><input type="text" id="student"></div>
+        <div><label for="teacher">教师姓名</label><input type="text" id="teacher"></div>
+        <div><label for="date">实验日期</label><input type="date" id="date"></div>
+      </div>
+      <div style="margin-top:14px">
+        <details>
+          <summary>更多信息（学号 / 分组座号 / 地点 / 同组人员）</summary>
+          <div class="grid g2">
+            <div><label for="sid">学号</label><input type="text" id="sid"></div>
+            <div><label for="group">分班分组及座号 <span class="hint">如 1-04-5</span></label><input type="text" id="group" placeholder="1-04-5"></div>
+            <div><label for="room">实验地点</label><input type="text" id="room"></div>
+            <div><label for="mates">同组人员</label><input type="text" id="mates"></div>
+          </div>
+        </details>
+      </div>
+    </fieldset>
+
+    <fieldset>
+      <legend>材料</legend>
+      <div class="grid g2">
+        <div>
+          <label for="photos">记录纸照片 <span class="hint">（§1 转录的输入，可多选）</span></label>
+          <input type="file" id="photos" accept="image/*" multiple>
+          <ul class="files" id="photos-list"></ul>
+        </div>
+        <div>
+          <label for="attachments">补充文件 <span class="hint">（数据表、指导书、今年新模板…）</span></label>
+          <input type="file" id="attachments" multiple>
+          <ul class="files" id="attachments-list"></ul>
+        </div>
+      </div>
+      <div style="margin-top:14px">
+        <label for="notes">补充说明 <span class="hint">（给写报告的自己或 agent 看；生成的文件里会以注释/末尾附注形式带上，定稿前删掉）</span></label>
+        <textarea id="notes" placeholder="例如：今年要求写思考题；不确定度统一取 u_B=e/√3；数据表要标单位"></textarea>
+      </div>
+    </fieldset>
+
+    <fieldset>
+      <legend>生成</legend>
+      <div class="grid g2">
+        <div>
+          <label for="root">生成到哪个目录 <span class="hint">（会在这里建 &lt;实验&gt;/实验数据/）</span></label>
+          <input type="text" id="root">
+        </div>
+        <div style="align-self:end">
+          <label class="check"><input type="checkbox" id="force"> 覆盖已有的同名报告</label>
+          <div class="row-between" style="margin-top:12px">
+            <button type="submit" class="primary" id="go">生成报告骨架</button>
+            <span class="hint" id="status" aria-live="polite"></span>
+          </div>
+        </div>
+      </div>
+    </fieldset>
+  </form>
+
+  <div id="result" aria-live="polite"></div>
+</main>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const fmtRow = $('fmt-row');
+let CFG = null;
+let uploaded = { photos: [], attachments: [] };
+
+function fmtSize(n) {
+  return n < 1024 ? n + ' B' : n < 1048576 ? (n / 1024).toFixed(0) + ' KB' : (n / 1048576).toFixed(1) + ' MB';
+}
+
+async function boot() {
+  CFG = await (await fetch('/api/config')).json();
+  // 默认选中本机编译得了的那个格式（Typst 没装就别默认它）
+  const firstOk = CFG.formats.findIndex(f => f.tool_ok);
+  const defIdx = firstOk >= 0 ? firstOk : 0;
+  fmtRow.innerHTML = CFG.formats.map((f, i) => `
+    <label class="fmt" title="${f.tool_ok ? '' : '本机没找到编译工具，先装好再编译'}">
+      <input type="radio" name="fmt" value="${f.value}" ${i === defIdx ? 'checked' : ''}>
+      <b>${f.label}</b><span>${f.file}${f.tool_ok ? '' : ' · 本机没装工具'}</span>
+    </label>`).join('');
+  $('exp-list').innerHTML = CFG.experiments.map(e =>
+    `<option value="${e.name}">${(e.aliases || []).join(' / ')}</option>`).join('');
+  $('root').value = CFG.root;
+  $('exp').addEventListener('input', () => {
+    const hit = CFG.experiments.find(e => e.name === $('exp').value.trim());
+    if (hit) $('dir').value = hit.dir || hit.name;
+  });
+}
+
+async function upload(kind, input, listEl) {
+  for (const file of input.files) {
+    const li = document.createElement('li');
+    li.className = 'pending';
+    li.textContent = `上传中… ${file.name}`;
+    listEl.appendChild(li);
+    try {
+      const r = await fetch('/api/upload?name=' + encodeURIComponent(file.name), { method: 'POST', body: file });
+      const j = await r.json();
+      if (j.error) throw new Error(j.error);
+      uploaded[kind].push(j);
+      li.className = '';
+      li.innerHTML = `<span>${j.name}</span><span class="sz">${fmtSize(j.size)}</span>`;
+      const del = document.createElement('button');
+      del.type = 'button';
+      del.textContent = '移除';
+      del.onclick = () => {
+        uploaded[kind] = uploaded[kind].filter(x => x.id !== j.id);
+        li.remove();
+      };
+      li.appendChild(del);
+    } catch (e) {
+      li.className = '';
+      li.innerHTML = `<span style="color:var(--err)">${file.name} 上传失败：${e.message}</span>`;
+    }
+  }
+  input.value = '';
+}
+
+document.querySelectorAll('input[type=file]').forEach(el => {
+  const kind = el.id === 'photos' ? 'photos' : 'attachments';
+  const listEl = $(el.id + '-list');
+  el.addEventListener('change', () => upload(kind, el, listEl));
+});
+
+$('f').addEventListener('submit', async (ev) => {
+  ev.preventDefault();
+  const btn = $('go'), status = $('status'), out = $('result');
+  btn.disabled = true; status.textContent = '生成中…'; out.innerHTML = '';
+  const params = {
+    '实验名称': $('exp').value.trim(),
+    '实验目录名': $('dir').value.trim(),
+    '输出格式': document.querySelector('input[name=fmt]:checked').value,
+    '姓名': $('student').value.trim(),
+    '指导教师': $('teacher').value.trim(),
+    '实验日期': $('date').value,
+    '学号': $('sid').value.trim(),
+    '分班分组及座号': $('group').value.trim(),
+    '实验地点': $('room').value.trim(),
+    '同组人员': $('mates').value.trim(),
+    '补充说明': $('notes').value,
+    '实验目录': $('root').value.trim(),
+    '覆盖已有报告': $('force').checked,
+    '记录纸照片': uploaded.photos,
+    '补充文件': uploaded.attachments,
+  };
+  try {
+    const r = await fetch('/api/generate', { method: 'POST', body: JSON.stringify(params) });
+    const j = await r.json();
+    if (j.error) throw new Error(j.error);
+    const files = j['归档'] || [];
+    out.innerHTML = `
+      <div class="box ok">
+        <b>生成成功</b>（${j['输出格式中文']}${j['覆盖已有'] ? '，覆盖了旧报告' : ''}）
+        <ul>
+          <li>报告：<code>${j['报告文件']}</code></li>
+          <li>参数：<code>${j['参数文件']}</code></li>
+          ${files.length ? `<li>归档 ${files.length} 个附件：${files.map(f => '`' + f + '`').join('、')}</li>` : ''}
+        </ul>
+        <div class="next">下一步：按 skill 流程 §1 转录照片 → §3 算数据出图 → 填进报告正文 → 编译 PDF。</div>
+        <div style="margin-top:12px">
+          <button class="ghost" type="button" id="reveal-btn">在资源管理器里打开</button>
+        </div>
+      </div>`;
+    // 用 addEventListener 而不是内联 onclick: Windows 路径里的反斜杠过不了字符串转义那几道关
+    $('reveal-btn').addEventListener('click', () => reveal(j['实验目录']));
+    uploaded = { photos: [], attachments: [] };
+    $('photos-list').innerHTML = ''; $('attachments-list').innerHTML = '';
+    status.textContent = '';
+  } catch (e) {
+    out.innerHTML = `<div class="box err"><b>失败</b><br>${e.message}</div>`;
+    status.textContent = '';
+  } finally {
+    btn.disabled = false;
+  }
+});
+
+async function reveal(path) {
+  const r = await fetch('/api/reveal', { method: 'POST', body: JSON.stringify({ path }) });
+  const j = await r.json();
+  if (j.error) alert(j.error);
+}
+
+boot();
+</script>
+</body>
+</html>

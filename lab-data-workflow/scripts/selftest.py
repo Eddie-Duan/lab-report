@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""三个脚本的回归自测。改完脚本跑一遍，全绿再提交。
+"""回归自测：三个脚本 + 报告生成器 + UI 后端。改完代码跑一遍，全绿再提交。
 
     python selftest.py
 
@@ -7,9 +7,15 @@
 （不用系统临时目录：Windows 上那个目录常被策略挡住，写不进去）。
 """
 import io
+import json
 import shutil
 import sys
+import urllib.error
+import urllib.parse
+import urllib.request
 import contextlib
+import threading
+import zipfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
@@ -17,6 +23,7 @@ sys.path.insert(0, str(ROOT))
 import csv_tables as ct      # noqa: E402
 import to_utf8 as tu         # noqa: E402
 import prep_photo as pp      # noqa: E402
+import make_report as mr     # noqa: E402
 from PIL import Image, ImageDraw, ImageFilter   # noqa: E402
 
 TMP = Path.cwd() / '.selftest_tmp'
@@ -328,6 +335,157 @@ def test_bad_flags():
     assert rc == 0 and '只在 --crop 时生效' in out, out
     rc, out = capture(pp.main, [str(TMP / '不存在.jpg')])
     assert rc == 1, out
+
+
+# ---------------- make_report + UI ----------------
+
+def _params(**kw):
+    p = {'实验名称': '测量金属的杨氏模量', '输出格式': 'typst', '姓名': '张三',
+         '指导教师': '李四', '实验日期': '2026-09-26', '学号': '2026K8009900001',
+         '分班分组及座号': '1-04-5', '实验地点': '西实验楼203', '同组人员': '王五',
+         '补充说明': '今年要求写思考题'}
+    p.update(kw)
+    return p
+
+
+@case
+def test_norm_date_and_group():
+    assert mr.norm_date('2026-09-26') == ('2026 年 9 月 26 日', ('2026', '9', '26'))
+    assert mr.norm_date('2026年9月26日')[0] == '2026 年 9 月 26 日'
+    assert mr.norm_date('') == ('', ('', '', ''))
+    assert mr.norm_date('待定') == ('待定', ('', '', ''))
+    assert mr.split_group('1-04-5') == ('1', '04', '5')
+    assert mr.split_group('2－06－5') == ('2', '06', '5'), '全角连字符也要认'
+    assert mr.split_group('1/04/5') == ('1', '04', '5')
+    assert mr.split_group('') == ('', '', '')
+    assert mr.split_group('1-04') == ('1-04', '', ''), '写不成三段就整串塞进分班, 别乱猜'
+    assert mr.safe_name('a/b:c*d?"e') == 'a_b_c_d_e', '连续非法字符合成一个下划线'
+    assert mr.safe_name('   ') == '未命名'
+    assert mr.safe_name('1.杨氏模量') == '1.杨氏模量', '中文和点不能被改掉'
+
+
+@case
+def test_make_four_formats():
+    root = TMP / 'gen'
+    for fmt, fname in (('typst', '实验报告.typ'), ('latex', '实验报告.tex'),
+                       ('docx', '实验报告.docx'), ('md', '实验报告.md')):
+        r = mr.make(_params(输出格式=fmt), root)
+        f = Path(r['报告文件'])
+        assert f.name == fname and f.is_file() and f.stat().st_size > 0, (fmt, r)
+        assert (Path(r['实验目录']) / '实验数据' / '报告参数.json').is_file()
+        assert r['实验名称'] == '测量金属的杨氏模量'
+
+    data = root / '测量金属的杨氏模量' / '实验数据'
+    typ = (data / '实验报告.typ').read_text(encoding='utf-8')
+    assert '#let exp_name = "测量金属的杨氏模量"' in typ, 'typst 报告头没填进去'
+    assert '#let student = "张三"' in typ and '#let date = "2026 年 9 月 26 日"' in typ
+    assert '今年要求写思考题' in typ, '补充说明要以注释形式带上'
+    assert '[实验名称], [#fill(exp_name' in typ, '报告头表格应该引用变量而不是写死'
+
+    tex = (data / '实验报告.tex').read_text(encoding='utf-8')
+    assert '\\newcommand{\\experiName}{测量金属的杨氏模量}' in tex, 'LaTeX 报告头没填'
+    assert '\\newcommand{\\class}{1}' in tex and '\\newcommand{\\group}{04}' in tex
+    assert '\\newcommand{\\dateYear}{2026}' in tex
+    # 学长那份 main.tex 是写满的成品, 只能取导言区+报告头 —— 正文一句都不许带过来
+    body = tex.split('\\begin{document}', 1)[1]
+    assert '\\section{实验目的}' in body and '\\section{问题讨论}' in body, '分节骨架要在'
+    for leaked in ('磁滞回线', '把大象放进冰箱', '掌握冰箱的使用'):
+        assert leaked not in body, f'把学长正文抄进来了: {leaked}'
+    assert 'Shing-Ho Lin' in tex, '原作者的署名要留在导言区注释里'
+
+    with zipfile.ZipFile(data / '实验报告.docx') as z:
+        assert z.testzip() is None
+        doc = z.read('word/document.xml').decode('utf-8')
+        assert '测量金属的杨氏模量' in doc and '张三' in doc and '2026 年 9 月 26 日' in doc
+        for h in ('实验目的', '仪器用具', '实验原理', '实验内容', '实验数据', '数据处理与结果', '问题讨论'):
+            assert h in doc, f'docx 缺分节 {h}'
+        core = z.read('docProps/core.xml').decode('utf-8')
+        assert '<dc:creator>张三</dc:creator>' in core, '文档属性里的作者要填上'
+
+    md = (data / '实验报告.md').read_text(encoding='utf-8')
+    assert '## 实验目的' in md and '测量金属的杨氏模量' in md
+
+    raises(FileExistsError, mr.make, _params(), root)          # 不许无声覆盖
+    assert mr.make(_params(), root, force=True)['覆盖已有'] is True
+
+
+@case
+def test_empty_fields_stay_blank():
+    r = mr.make({'实验名称': '驻波实验', '输出格式': 'typst', '姓名': '', '指导教师': '',
+                 '实验日期': ''}, TMP / 'gen2')
+    typ = Path(r['报告文件']).read_text(encoding='utf-8')
+    assert '#let student = ""' in typ and '#let date = ""' in typ, '留空就是留空, 不要瞎填'
+    assert '#fill(student' in typ, '空的字段在报告里应画成下划线空格'
+
+
+@case
+def test_attachments_dont_pile_up():
+    root = TMP / 'gen3'
+    src = TMP / 'src'
+    src.mkdir(exist_ok=True)
+    a, b = src / '数据.csv', src / 'IMG_1.jpg'
+    a.write_text('序号,1\n', encoding='utf-8')
+    b.write_bytes(b'fake jpeg')
+    p = {'实验名称': '驻波实验', '输出格式': 'md', '补充文件': [str(a)], '记录纸照片': [str(b)]}
+    r1 = mr.make(p, root)
+    assert r1['归档'] == ['补充文件/数据.csv', '照片/IMG_1.jpg'], r1['归档']
+    r2 = mr.make(dict(p, 覆盖已有报告=True), root, force=True)
+    assert r2['归档'] == r1['归档'], f'同名同内容不该再堆一份: {r2["归档"]}'
+    b.write_bytes(b'fake jpeg v2')                      # 改了内容 -> 才允许新增一份
+    r3 = mr.make(dict(p), root, force=True)
+    assert '照片/IMG_1-2.jpg' in r3['归档'], r3['归档']
+
+
+@case
+def test_ui_server_end_to_end():
+    import urllib.request
+    import json as _json
+    import threading as _threading
+    sys.path.insert(0, str(ROOT.parent / 'ui'))
+    import server as ui                                  # noqa: E402
+
+    root = TMP / 'uiroot'
+    httpd, port = ui.make_server(0, root)
+    th = _threading.Thread(target=httpd.serve_forever, daemon=True)
+    th.start()
+    base = f'http://127.0.0.1:{port}'
+
+    def call(path, data=None):
+        req = urllib.request.Request(base + path, data=data,
+                                     headers={'Content-Type': 'application/json'} if data else {})
+        try:
+            with urllib.request.urlopen(req, timeout=20) as r:
+                return r.status, _json.loads(r.read().decode('utf-8'))
+        except urllib.error.HTTPError as e:
+            return e.code, _json.loads(e.read().decode('utf-8'))
+
+    try:
+        st, cfg = call('/api/config')
+        assert st == 200 and len(cfg['experiments']) >= 15, cfg
+        assert all('tool_ok' in f for f in cfg['formats']), cfg['formats']
+
+        st, up = call('/api/upload?name=' + urllib.parse.quote('照片 1.jpg'), b'fake')
+        assert st == 200 and up['name'] == '照片 1.jpg', up
+
+        body = _json.dumps({
+            '实验名称': '测量金属的杨氏模量', '输出格式': 'md', '姓名': '张三',
+            '实验目录': str(root), '记录纸照片': [up], '补充文件': [],
+        }).encode('utf-8')
+        st, gen = call('/api/generate', body)
+        assert st == 200 and gen['ok'], gen
+        rep = Path(gen['报告文件'])
+        assert rep.is_file() and (rep.parent / '照片/照片 1.jpg').is_file(), gen
+        assert not (rep.parent / '.上传暂存').exists(), '上传暂存要清干净'
+
+        st, again = call('/api/generate', body)
+        assert st == 400 and '已存在' in _json.dumps(again, ensure_ascii=False), again
+
+        st, bad = call('/api/generate', _json.dumps({'实验名称': '', '输出格式': 'md',
+                                                     '实验目录': str(root)}).encode('utf-8'))
+        assert st == 400, bad
+    finally:
+        httpd.shutdown()
+        httpd.server_close()
 
 
 def main():

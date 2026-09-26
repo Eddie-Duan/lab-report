@@ -1,0 +1,137 @@
+% 中国科学院大学《基础物理实验》实验报告 —— LaTeX 模板
+%
+% 来源: sample/模板/LaTeX报告模板/main.tex（Shing-Ho Lin 与 Jun-Xiong Ji 于 2022 年 9 月编写,
+%       已被课程列为推荐模板）。这里只取了它的**导言区 + 报告头**, 正文全部清空成空壳 ——
+%       原文件是一份写满的成品(磁滞回线), 不能拿来当模板用, 那等于抄报告。
+%
+% 本模板根据中国科学院大学本科生公共必修课程《基础物理实验》Word模板格式编写
+% 本模板由Shing-Ho Lin和Jun-Xiong Ji于2022年9月共同完成, 旨在方便LaTeX原教旨主义者和被Word迫害者写实验报告, 避免Word文档因插入过多图与公式造成卡顿.
+% 如有任何问题, 请联系: linchenghao21@mails.ucas.ac.cn
+% 感谢中国科学院大学物理学院张海龙老师的支持及其向选课同学的推荐
+% This is the LaTeX template for experiment report of Experimental Physics courses, based on its provided Word template.
+% This template is completed by the joint collabration of Shing-Ho Lin and Jun-Xiong Ji in September 2022.
+% Feel free to contact us via: linchenghao21@mails.ucas.ac.cn
+% Thanks for the support and recommendation from Prof. Hai-Long Zhang @ School of Physical Sciences, UCAS
+%
+% 编译: xelatex 报告.tex   （要跑两遍才解析交叉引用; 用 latexmk -xelatex 更省事）
+% 分节顺序按课程《实验报告格式及要求》排的; 当年要求不一样就以当年的为准 —— 见 SKILL.md「材料优先级」
+%
+% 导言区相对原模板做了裁剪: 只留本机 MiKTeX 里确实装着的包, 免得首次编译就卡在缺包上。
+% 原模板还有 algorithm/algpseudocode、mdframed、adjustbox、fontsize、pdfpages、wrapfig、
+% breqn、mathtools、mathrsfs、amsthm、siunitx、circuitikz、subfigure —— 需要时加回来即可
+% (MiKTeX 会自动联网装; subfigure 已废弃, 用 subcaption)。
+
+\documentclass[11pt]{article}
+
+\usepackage[a4paper]{geometry}
+\geometry{left=2.0cm,right=2.0cm,top=2.5cm,bottom=2.5cm}
+
+\usepackage{ctex} % 支持中文的LaTeX宏包
+\usepackage{amsmath,amsfonts,amssymb,bm} % 数学公式和符号
+\usepackage{graphicx} % 插图
+\usepackage{fontspec} % 字体设置
+\usepackage{booktabs,multirow,array,bigstrut} % 三线表与表格
+\usepackage{float} % 让 [H] 生效(图/表钉在原地)
+\usepackage{caption,subcaption} % 图表标题; subcaption 是 subfigure 的现代替代
+\usepackage{enumitem} % 列表间距
+\usepackage{fancyhdr} % 页眉页脚
+\usepackage{listings} % 插入源代码(处理数据的脚本可以贴)
+\usepackage{tikz,xcolor} % 画图与颜色
+\usepackage[capitalize]{cleveref} % \cref{} 自动加前缀
+
+\definecolor{dkgreen}{rgb}{0,0.6,0}
+\definecolor{gray}{rgb}{0.5,0.5,0.5}
+\definecolor{mauve}{rgb}{0.58,0,0.82}
+\lstset{
+  frame=tb,
+  aboveskip=3mm,
+  belowskip=3mm,
+  showstringspaces=false,
+  columns=flexible,
+  framerule=1pt,
+  rulecolor=\color{gray!35},
+  backgroundcolor=\color{gray!5},
+  basicstyle={\small\ttfamily},
+  numbers=none,
+  numberstyle=\tiny\color{gray},
+  keywordstyle=\color{blue},
+  commentstyle=\color{dkgreen},
+  stringstyle=\color{mauve},
+  breaklines=true,
+  breakatwhitespace=true,
+  tabsize=3,
+}
+
+\Crefname{section}{Section}{Sections}
+\Crefname{table}{Table}{Tables}
+\crefname{table}{Table.}{Tabs.}
+
+% 字体: 原模板用的是随附的 Palatino Linotype.ttf / SimHei.ttf; 这里改成系统字体名,
+% 免得每个实验目录都要拷 10MB 字体。缺字就改这两行(Windows 自带这两个字体)。
+\setmainfont{Palatino Linotype}
+\setCJKmainfont{SimHei}
+% \setCJKsansfont{Songti}
+% \setCJKmonofont{SimSun}
+\punctstyle{kaiming}
+
+\renewcommand{\emph}[1]{\begin{kaishu}#1\end{kaishu}}
+
+% ---- 报告头信息（UI / make_report.py 改这一段）----
+\newcommand{\experiName}{}                       % 实验名称
+\newcommand{\supervisor}{}                       % 指导教师
+\newcommand{\name}{}                             % 姓名
+\newcommand{\studentNum}{}                       % 学号
+\newcommand{\class}{}                            % 分班
+\newcommand{\group}{}                            % 分组
+\newcommand{\seat}{}                             % 座号
+\newcommand{\dateYear}{}                         % 实验日期 - 年
+\newcommand{\dateMonth}{}                        % 月
+\newcommand{\dateDay}{}                          % 日
+\newcommand{\room}{}                             % 实验地点
+\newcommand{\others}{$\square$}                  % 调课/补课, 改了就打勾: $\square$\hspace{-1em}$\surd$
+%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+\begin{document}
+
+\begin{center}
+    \LARGE \bf 《\, 基\, 础\, 物\, 理\, 实\, 验\, 》\, 实\, 验\, 报\, 告
+\end{center}
+
+\begin{center}
+    \noindent \emph{实验名称}\underline{\makebox[25em][c]{\experiName}}
+    \emph{指导教师}\underline{\makebox[8em][c]{\supervisor}}\\
+    \emph{姓名}\underline{\makebox[6em][c]{\name}}
+    \emph{学号}\underline{\makebox[10em][c]{\studentNum}}
+    \emph{分班分组及座号} \underline{\makebox[5em][c]{\class \ -\ \group \ -\ \seat }\emph{号}} （\emph{例}:\, 1\,-\,04\,-\,5\emph{号}）\\
+    \emph{实验日期} \underline{\makebox[3em][c]{\dateYear}}\emph{年}
+    \underline{\makebox[2em][c]{\dateMonth}}\emph{月}
+    \underline{\makebox[2em][c]{\dateDay}}\emph{日}
+    \emph{实验地点}\underline{{\makebox[4em][c]\room}}
+    \emph{调课/补课} \underline{\makebox[3em][c]{\others\ 是}}
+    \emph{成绩评定} \underline{\hspace{5em}}
+    {\noindent}
+    \rule[8pt]{17cm}{0.2em}
+\end{center}
+
+% 一个实验分几部分时, 每部分前加一行:
+% \begin{center}\Large \bf 第一部分\qquad 部分名称\end{center}
+
+\section{实验目的}
+
+\begin{enumerate}
+    \item 
+\end{enumerate}
+
+\section{仪器用具}
+
+\section{实验原理}
+
+\section{实验内容}
+
+\section{实验数据}
+
+\section{数据处理与结果}
+
+\section{问题讨论}
+
+\end{document}

@@ -1,2 +1,13 @@
 __pycache__/
 .selftest_tmp/
+
+# sample/ 是别的同学的实名报告和往年材料（约 72MB），不收进仓库：
+# 一是隐私（里面有名有姓有学号），二是克隆的人不需要 72MB 参考料。
+# skill 本身不依赖它 —— 模板、实验名清单、Word 容器都在 lab-data-workflow/ 里自带。
+sample/
+
+# 试装工具链/临时产物
+.tools/
+.tmptmp/
+.wordtmp/
+_scratch/

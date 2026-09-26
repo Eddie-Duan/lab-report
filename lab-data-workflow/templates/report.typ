@@ -5,10 +5,15 @@
 //   图:   同目录放 fig1.png 之类, 用 #figure(image("fig1.png", width: 60%), caption: [...])
 //         模板里那段 figure 默认是注释掉的 —— 图还没生成时 image() 会直接报文件找不到
 //
+// 报告头那段 "#let" 会被 UI / make_report.py 填, 也可以手改。
+// 分节顺序按课程《实验报告格式及要求》默认排的; 当年要求不一样就按当年的来 —— 见 SKILL.md「材料优先级」。
+//
 // 已验过的坑:
 //   * 表格默认齐左, 加下面 "#show table:" 那条规则才会居中
 //   * bar(x) 在 Typst 里是竖线符号, 不是上划线! 均值要用 overline(x)
 //   * 单位用 #u("mm"), 它自带一点间距; 直接写 $... "mm"$ 会贴着数字
+//   * 单元格必须写内容块 [...]，不能写 "字符串" —— 字符串不会被当标记解析,
+//     里面的 $公式$ 会原样印出来
 
 #set page(paper: "a4", margin: (x: 2.3cm, y: 2.0cm), numbering: "1", number-align: center)
 #set text(font: ("Times New Roman", "SimSun"), size: 11pt, lang: "zh")
@@ -21,12 +26,23 @@
 #set figure(gap: 0.9em)
 #show table: it => align(center, it)
 
+// ============ 报告头（UI / make_report.py 改这一段）============
+#let exp_name = ""          // 实验名称
+#let teacher = ""           // 指导教师
+#let student = ""           // 姓名
+#let student_id = ""        // 学号
+#let class_group = ""       // 分班分组及座号, 形如 1-04-5
+#let date = ""              // 实验日期, 形如 2026 年 9 月 26 日
+#let room = ""              // 实验地点
+#let mates = ""             // 同组人员
+
 // 单位: 写 #u("mm") 得到带前置间距的正体 mm
 #let u(s) = h(0.17em) + math.upright(s)
 
+// 空着的字段画成下划线空格, 有值就正常显示
+#let fill(v, w: 5em) = if v == "" { underline[#box(width: w)] } else { v }
+
 // 三线表: 第一行自动加粗当表头, 其余是数据行
-//   单元格必须写成内容块 [...]，不能写 "字符串" —— 字符串不会被当标记解析,
-//   里面的 $公式$ 会原样印出来
 //   #bt((
 //     ([序号 $i$], [$M\/"g"$]),
 //     ([1], [250]),
@@ -47,16 +63,17 @@
 // ============ 正文 ============
 
 #align(center)[
-  #text(size: 17pt, weight: "bold", font: ("Times New Roman", "SimHei"))[实验名称]
-  #v(0.9em)
+  #text(size: 16pt, weight: "bold", font: ("Times New Roman", "SimHei"))[《基础物理实验》实验报告]
+  #v(0.6em)
   #table(
-    columns: (auto, auto, auto, auto),
+    columns: (auto, 1fr, auto, 1fr),
     align: (right, left, right, left),
     stroke: none,
-    inset: (x: 6pt, y: 2pt),
-    [姓名], [×××], [学号], [×××××××××××],
-    [分组组号], [××], [实验日期], [×××× 年 × 月 × 日],
-    [地点], [×××], [指导教师], [×××],
+    inset: (x: 6pt, y: 2.5pt),
+    [实验名称], [#fill(exp_name, w: 12em)], [指导教师], [#fill(teacher, w: 6em)],
+    [姓名], [#fill(student, w: 6em)], [学号], [#fill(student_id, w: 9em)],
+    [分班分组及座号], [#fill(class_group, w: 9em)], [实验日期], [#fill(date, w: 9em)],
+    [实验地点], [#fill(room, w: 6em)], [同组人员], [#fill(mates, w: 6em)],
   )
 ]
 
@@ -65,11 +82,19 @@
 + 目的之一。
 + 目的之二。
 
+= 仪器用具
+
+仪器名称（型号、规格、分度值）。
+
 = 实验原理
 
 $ Y = (4 M g L) / (pi d^2 Delta L) $
 
 式中 $M$ 为砝码质量，$d$ 为直径，$Delta L$ 为伸长量。用逐差法取 $Delta L$。
+
+= 实验内容
+
+调节与测量步骤、观察到的现象。
 
 = 实验数据
 
@@ -81,7 +106,7 @@ $ Y = (4 M g L) / (pi d^2 Delta L) $
 
 某量 $x = 12.3#u("mm")$，均值 $overline(x) = 12.30#u("mm")$。
 
-= 数据处理
+= 数据处理与结果
 
 $ Y = (4 M g L) / (pi d^2 overline(Delta l)) = 2.63 times 10^11#u("N/m")^2 $
 
@@ -91,10 +116,11 @@ $ Y = (4 M g L) / (pi d^2 overline(Delta l)) = 2.63 times 10^11#u("N/m")^2 $
 //   caption: [某量关系图],
 // )
 
-= 实验结果
-
 #block(breakable: false, bt((
   ([方法], [样品], [杨氏模量 $Y \/ 10^11 "N/m"^2$], [相对不确定度]),
   ([拉伸法], [钼丝], [$2.63 plus.minus 0.18$], [6.7%]),
-  ([动态法], [铜棒], [$1.038 plus.minus 0.008$], [0.8%]),
 )))
+
+= 问题讨论
+
+// 要求里若还有"思考题/总结", 按当年要求加节 —— 见 SKILL.md「材料优先级」
