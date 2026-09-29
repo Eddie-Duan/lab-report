@@ -94,6 +94,7 @@
   .box code { background: rgba(0,0,0,.05); padding: 1px 5px; border-radius: 4px; word-break: break-all; }
   .box ul { margin: 8px 0 0; padding-left: 20px; color: var(--ink); }
   .box .next { color: var(--ink); margin-top: 10px; }
+  .handoff { margin-top: 14px; }
   details summary { cursor: pointer; font-weight: 600; font-size: 14px; }
   details[open] summary { margin-bottom: 14px; }
 </style>
@@ -102,6 +103,13 @@
 <main>
   <h1>实验报告生成器</h1>
   <p class="sub">填报告头和材料，生成到 <code>&lt;实验目录&gt;/&lt;实验&gt;/实验数据/</code>，正文由 agent 按 skill 流程续写。</p>
+
+  <noscript>
+    <p class="box err" style="margin-bottom:18px">
+      <b>这个界面要 JavaScript</b>（都是本地内联脚本，不联网）。被浏览器扩展或策略挡掉时，
+      页面就只剩几个空框 —— 放行内联脚本后刷新即可。
+    </p>
+  </noscript>
 
   <p class="note">
     <b>模板/要求以你当年拿到的为准。</b> 这里的版式是按往年材料整理的默认值；如果今年的报告头、分节或要求不一样，
@@ -126,7 +134,9 @@
 
     <fieldset>
       <legend>输出格式</legend>
-      <div class="fmt-row" id="fmt-row"></div>
+      <div class="fmt-row" id="fmt-row">
+        <p class="hint">正在从本地服务读取可用格式…（一直停在这里就是没连上服务，见上方红字）</p>
+      </div>
     </fieldset>
 
     <fieldset>
@@ -163,6 +173,22 @@
           <ul class="files" id="attachments-list"></ul>
         </div>
       </div>
+      <div class="grid g2" style="margin-top:14px">
+        <div>
+          <label for="prelabs">预习报告 <span class="hint">（必填，PDF/图片，可多选）</span></label>
+          <input type="file" id="prelabs" multiple accept=".pdf,image/*">
+          <ul class="files" id="prelabs-list"></ul>
+        </div>
+        <div>
+          <label for="records">数据记录 <span class="hint">（必填，PDF/图片，可多选）</span></label>
+          <input type="file" id="records" multiple accept=".pdf,image/*">
+          <ul class="files" id="records-list"></ul>
+        </div>
+      </div>
+      <p class="hint" style="margin:10px 0 0">
+        这两项会归档到 <code>实验数据/预习报告/</code>、<code>实验数据/数据记录/</code>，并当<b>附录 A / 附录 B
+        排在报告最后</b>（LaTeX 那份用 <code>pdfpages</code> 直接嵌进 PDF；Typst 能嵌图片，PDF 嵌不了）。
+      </p>
       <div style="margin-top:14px">
         <label for="notes">补充说明 <span class="hint">（给写报告的自己或 agent 看；生成的文件里会以注释/末尾附注形式带上，定稿前删掉）</span></label>
         <textarea id="notes" placeholder="例如：今年要求写思考题；不确定度统一取 u_B=e/√3；数据表要标单位"></textarea>
@@ -178,6 +204,8 @@
         </div>
         <div style="align-self:end">
           <label class="check"><input type="checkbox" id="force"> 覆盖已有的同名报告</label>
+          <label class="check" style="margin-top:6px"><input type="checkbox" id="head-only">
+            只更新报告头 <span class="hint">（正文写过了就勾这个，正文一个字都不动）</span></label>
           <div class="row-between" style="margin-top:12px">
             <button type="submit" class="primary" id="go">生成报告骨架</button>
             <span class="hint" id="status" aria-live="polite"></span>
@@ -194,21 +222,56 @@
 const $ = (id) => document.getElementById(id);
 const fmtRow = $('fmt-row');
 let CFG = null;
-let uploaded = { photos: [], attachments: [] };
+let uploaded = { photos: [], attachments: [], prelabs: [], records: [] };
+const FILE_KIND = { photos: 'photos', attachments: 'attachments', prelabs: 'prelabs', records: 'records' };
 
 function fmtSize(n) {
   return n < 1024 ? n + ' B' : n < 1048576 ? (n / 1024).toFixed(0) + ' KB' : (n / 1048576).toFixed(1) + ' MB';
 }
 
+// 拼 HTML 时把用户输入里的 < > & 挡住（实验名、路径都可能带）
+function esc(s) {
+  return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
 async function boot() {
-  CFG = await (await fetch('/api/config')).json();
+  // 双击 index.html（file://）是没有后端的: 格式选项/实验名清单都取不到。
+  // 与其空着一片让人纳闷，不如直接说清楚该怎么开。
+  if (location.protocol === 'file:') {
+    const box = document.createElement('div');
+    box.className = 'box err';
+    box.style.marginBottom = '18px';
+    box.innerHTML = `
+      <b>这个页面要由本地服务打开</b><br>
+      直接双击 <code>index.html</code> 会：没有「输出格式」选项、实验名清单空着、文件也传不上去。<br>
+      请改用命令行启动（在 skill 目录下）：
+      <code>python ui/server.py --root &lt;实验目录&gt; --open</code><br>
+      它会自动打开 <code>http://127.0.0.1:8722/</code>，用那个地址操作。`;
+    document.querySelector('main').insertBefore(box, $('f'));
+    $('go').disabled = true;
+    return;
+  }
+  CFG = null;
+  try {
+    const r = await fetch('/api/config');
+    if (!r.ok) throw new Error('服务回了 HTTP ' + r.status);
+    CFG = await r.json();
+  } catch (e) {
+    // 服务没起/端口不对/被扩展或代理拦了: 别留一个空框让人猜
+    fmtRow.innerHTML = `<p class="hint" style="color:var(--err)">读不到本地服务（${e.message}）。`
+      + `这个界面得由服务打开：<code>python ui/server.py --root &lt;实验目录&gt; --open</code>，`
+      + `然后访问 <code>http://127.0.0.1:8722/</code>。</p>`;
+    $('go').disabled = true;
+    return;
+  }
   // 默认选中本机编译得了的那个格式（Typst 没装就别默认它）
+  // 界面上不标"本机没装工具"——想确认就自己 typst --version / xelatex --version
   const firstOk = CFG.formats.findIndex(f => f.tool_ok);
   const defIdx = firstOk >= 0 ? firstOk : 0;
   fmtRow.innerHTML = CFG.formats.map((f, i) => `
-    <label class="fmt" title="${f.tool_ok ? '' : '本机没找到编译工具，先装好再编译'}">
+    <label class="fmt">
       <input type="radio" name="fmt" value="${f.value}" ${i === defIdx ? 'checked' : ''}>
-      <b>${f.label}</b><span>${f.file}${f.tool_ok ? '' : ' · 本机没装工具'}</span>
+      <b>${f.label}</b><span>${f.file}</span>
     </label>`).join('');
   $('exp-list').innerHTML = CFG.experiments.map(e =>
     `<option value="${e.name}">${(e.aliases || []).join(' / ')}</option>`).join('');
@@ -249,14 +312,26 @@ async function upload(kind, input, listEl) {
 }
 
 document.querySelectorAll('input[type=file]').forEach(el => {
-  const kind = el.id === 'photos' ? 'photos' : 'attachments';
   const listEl = $(el.id + '-list');
-  el.addEventListener('change', () => upload(kind, el, listEl));
+  el.addEventListener('change', () => upload(FILE_KIND[el.id], el, listEl));
 });
+
+// 两个勾选语义相反（一个重写整份，一个只改抬头），勾一个就把另一个撤了
+$('force').addEventListener('change', () => { if ($('force').checked) $('head-only').checked = false; });
+$('head-only').addEventListener('change', () => { if ($('head-only').checked) $('force').checked = false; });
 
 $('f').addEventListener('submit', async (ev) => {
   ev.preventDefault();
   const btn = $('go'), status = $('status'), out = $('result');
+  // 预习报告 / 数据记录 是必填项（缺了就生成不出带附录的报告）
+  const missing = [];
+  if (!uploaded.prelabs.length) missing.push('预习报告');
+  if (!uploaded.records.length) missing.push('数据记录');
+  if (missing.length) {
+    out.innerHTML = `<div class="box err"><b>还差两个必填项</b><br>请先上传：${missing.join('、')}`
+      + `（PDF 或图片都行，多个也可以）。它们会被归档到实验数据目录，并当附录 A/B 附在报告最后。</div>`;
+    return;
+  }
   btn.disabled = true; status.textContent = '生成中…'; out.innerHTML = '';
   const params = {
     '实验名称': $('exp').value.trim(),
@@ -272,8 +347,11 @@ $('f').addEventListener('submit', async (ev) => {
     '补充说明': $('notes').value,
     '实验目录': $('root').value.trim(),
     '覆盖已有报告': $('force').checked,
+    '只更新报告头': $('head-only').checked,
     '记录纸照片': uploaded.photos,
     '补充文件': uploaded.attachments,
+    '预习报告': uploaded.prelabs,
+    '数据记录': uploaded.records,
   };
   try {
     const r = await fetch('/api/generate', { method: 'POST', body: JSON.stringify(params) });
@@ -282,21 +360,46 @@ $('f').addEventListener('submit', async (ev) => {
     const files = j['归档'] || [];
     out.innerHTML = `
       <div class="box ok">
-        <b>生成成功</b>（${j['输出格式中文']}${j['覆盖已有'] ? '，覆盖了旧报告' : ''}）
+        <b>${j['只更新报告头'] ? '报告头已更新' : '生成成功'}</b>（${j['输出格式中文']}${j['覆盖已有'] ? '，覆盖了旧报告' : ''}${j['只更新报告头'] ? '，正文一个字都没动' : ''}）
         <ul>
           <li>报告：<code>${j['报告文件']}</code></li>
           <li>参数：<code>${j['参数文件']}</code></li>
           ${files.length ? `<li>归档 ${files.length} 个附件：${files.map(f => '`' + f + '`').join('、')}</li>` : ''}
         </ul>
-        <div class="next">下一步：按 skill 流程 §1 转录照片 → §3 算数据出图 → 填进报告正文 → 编译 PDF。</div>
+        <div class="next">${j['只更新报告头']
+          ? '正文没动。接着写就对 agent 说：读 <code>报告参数.json</code> 继续。'
+          : '下一步：按 skill 流程 §1 转录照片 → §3 算数据出图 → 填进报告正文 → 编译 PDF。'}</div>
+        ${j['给agent的话'] ? `<div class="handoff">
+          <label for="handoff-text"><b>复制以下文本到 DSH 中</b>
+            <span class="hint">（点「复制」；也可以在这里改完再复制）</span></label>
+          <textarea id="handoff-text" readonly rows="7">${esc(j['给agent的话'])}</textarea>
+          <div class="row-between">
+            <button class="ghost" type="button" id="copy-btn">复制</button>
+            <span class="hint" id="copy-status" aria-live="polite"></span>
+          </div>
+        </div>` : ''}
         <div style="margin-top:12px">
           <button class="ghost" type="button" id="reveal-btn">在资源管理器里打开</button>
         </div>
       </div>`;
     // 用 addEventListener 而不是内联 onclick: Windows 路径里的反斜杠过不了字符串转义那几道关
     $('reveal-btn').addEventListener('click', () => reveal(j['实验目录']));
-    uploaded = { photos: [], attachments: [] };
+    const copyBtn = $('copy-btn');
+    if (copyBtn) {
+      copyBtn.addEventListener('click', async () => {
+        const t = $('handoff-text');
+        t.focus(); t.select();
+        let ok = false;
+        try { await navigator.clipboard.writeText(t.value); ok = true; }
+        catch (e) { try { ok = document.execCommand('copy'); } catch (e2) { ok = false; } }
+        $('copy-status').textContent = ok
+          ? '已复制 —— 切到 DSH 粘贴发送即可'
+          : '复制被浏览器挡了，正文已全选，按 Ctrl+C';
+      });
+    }
+    uploaded = { photos: [], attachments: [], prelabs: [], records: [] };
     $('photos-list').innerHTML = ''; $('attachments-list').innerHTML = '';
+    $('prelabs-list').innerHTML = ''; $('records-list').innerHTML = '';
     status.textContent = '';
   } catch (e) {
     out.innerHTML = `<div class="box err"><b>失败</b><br>${e.message}</div>`;

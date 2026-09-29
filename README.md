@@ -22,9 +22,23 @@ python lab-data-workflow/ui/server.py --root <实验目录>     # 默认 http://
 ```
 
 填实验名称（从 `experiments.json` 的 20 个往年实验名里搜）、输出格式（Typst / LaTeX / Word / Markdown）、
-姓名、教师、日期（这三项可留空）、记录纸照片、补充文件、补充说明，然后生成到
+姓名、教师、日期（这三项可留空）、记录纸照片、补充文件、补充说明，
+以及 **预习报告、数据记录**（这两项必填），然后生成到
 `<实验目录>/<实验>/实验数据/`：报告骨架（报告头已填、分节留空）+ `报告参数.json` + 归档的附件。
 命令行等价物是 `scripts/make_report.py`（`--list` 看实验名清单，`--help` 看全部参数）。
+
+预习报告、数据记录会归档到 `实验数据/预习报告/`、`实验数据/数据记录/`，并被排成**附录 A / 附录 B
+跟在报告最后**：LaTeX 直接用 `\includepdf`/`\includegraphics` 嵌进 PDF，Typst 能嵌图片（PDF 不行，
+骨架里会留注释说明），Word/Markdown 列出文件名让你自己插。命令行对应 `--prelab` / `--record`（不强制）。
+
+界面是**给人用的可选件**（只用标准库、不联网、由你手动启动）：纯 agent 场景不必开它，直接
+`make_report.py` 走命令行，落盘的东西完全一样（包括 `报告参数.json`）。删掉 `ui/` 不影响 skill 本体。
+
+正文写好后要改报告头（日期/分组/教师名字），勾**"只更新报告头"**：只重写报告头，正文一个字都不动。
+命令行等价物是 `make_report.py --head-only`（与 `--force` 互斥；没给的字段沿用上次的值）。
+
+生成成功后的结果里有**「复制以下文本到 DSH 中」**：一键复制一段已经把 `报告参数.json`、实验数据目录、
+照片目录的绝对路径写好的指令，直接粘进 agent 对话就能开工（换别的宿主 agent 也一样用）。
 
 ## 目录
 
@@ -32,17 +46,20 @@ python lab-data-workflow/ui/server.py --root <实验目录>     # 默认 http://
 lab-data-workflow/
   SKILL.md                 完整流程、读数纪律、材料优先级、踩过的坑、排查表
   experiments.json         往年实验名清单（界面搜索用）
-  ui/server.py             报告头界面（标准库 HTTP 服务，不联网）
+  ui/server.py             报告头界面（标准库 HTTP 服务，不联网；人用，可选）
   ui/index.html            界面本身（无外部依赖，离线可用）
   scripts/prep_photo.py    照片预处理：总览／转正／切半／裁切放大／去背景补光
   scripts/csv_tables.py    带分段标记的原始数据 CSV 读写
   scripts/to_utf8.py       GBK → UTF-8 BOM（解决 Excel 中文 CSV 乱码）
-  scripts/make_report.py   按参数生成报告骨架（typst/latex/docx/md）
-  scripts/selftest.py      上面这些的回归自测（27 个用例），改完跑一遍
+  scripts/make_report.py   按参数生成报告骨架（typst/latex/docx/md）；--head-only 只改报告头不动正文
+  scripts/selftest.py      上面这些的回归自测（30 个用例），改完跑一遍
   templates/report.typ     Typst 报告模板（三线表、公式编号、中文字体、报告头变量）
   templates/latex/main.tex LaTeX 报告模板（学长模板的导言区+报告头，正文清空）
-  templates/docx/          Word 容器（官方报告头，生成时只换正文）
-sample/                    参考材料：学长模板、预习要求、范例报告（见 sample/README.md）
+  templates/latex/原版参考.tex  学长模板的完整原版（课程推荐模板）——要加宏包/改版式照它抄
+  templates/docx/          Word 容器（今年的官方《实验报告报告头》，生成时只换正文）
+sample/                    本地参考料（默认不入 git）：参考/预习要求·仪器说明书·网格坐标纸·
+                           数据表曲线图要素（课程《数据表、曲线图要素示意》+ 抽出的两张示意图）、
+                           模板/、范例报告/ —— skill 本身不依赖它，删了也能用
 ```
 
 `sample/` 里是别的同学的实名报告，**默认不入 git**（见 `.gitignore`）；skill 本身不依赖它 ——
@@ -68,6 +85,7 @@ cp -r lab-report/lab-data-workflow <你的项目>/.claude/skills/
 | `<项目>/.dsh/skills/`、`<项目>/.agents/skills/` | 只在该项目里生效 |
 
 目录名保持 `lab-data-workflow/` 且里面有 `SKILL.md` 就行（平铺成 `lab-data-workflow.md` 也可以）。
+如果只给 agent 用，`ui/` 可有可无 —— 它就是 `make_report.py` 的一层网页壳，agent 走命令行。
 
 之后在项目里说"录入实验数据""处理实验数据""写实验报告"就会自动加载。（或让AI agent自行安装）
 
@@ -86,7 +104,8 @@ python lab-data-workflow/scripts/selftest.py
 ```
 
 覆盖编码嗅探、同名分段、行列数不匹配、错字与空格子的区分、裁切坐标换算、去背景的极性、
-四种输出格式的报告头填充、附件归档去重、界面后端全流程等易错点（27 个用例），全绿再提交。
+四种输出格式的报告头填充、只看报告头不动正文、四种格式的附录 A/B 排版、附件归档去重、
+界面后端全流程等易错点（30 个用例），全绿再提交。
 
 ## 说明
 

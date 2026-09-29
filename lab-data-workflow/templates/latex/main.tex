@@ -1,6 +1,6 @@
 % 中国科学院大学《基础物理实验》实验报告 —— LaTeX 模板
 %
-% 来源: sample/模板/LaTeX报告模板/main.tex（Shing-Ho Lin 与 Jun-Xiong Ji 于 2022 年 9 月编写,
+% 来源: 同目录的 原版参考.tex（Shing-Ho Lin 与 Jun-Xiong Ji 于 2022 年 9 月编写,
 %       已被课程列为推荐模板）。这里只取了它的**导言区 + 报告头**, 正文全部清空成空壳 ——
 %       原文件是一份写满的成品(磁滞回线), 不能拿来当模板用, 那等于抄报告。
 %
@@ -17,9 +17,9 @@
 % 分节顺序按课程《实验报告格式及要求》排的; 当年要求不一样就以当年的为准 —— 见 SKILL.md「材料优先级」
 %
 % 导言区相对原模板做了裁剪: 只留本机 MiKTeX 里确实装着的包, 免得首次编译就卡在缺包上。
-% 原模板还有 algorithm/algpseudocode、mdframed、adjustbox、fontsize、pdfpages、wrapfig、
-% breqn、mathtools、mathrsfs、amsthm、siunitx、circuitikz、subfigure —— 需要时加回来即可
-% (MiKTeX 会自动联网装; subfigure 已废弃, 用 subcaption)。
+% 原模板还有 algorithm/algpseudocode、mdframed、adjustbox、fontsize、wrapfig、rotating、
+% breqn、mathtools、mathrsfs、amsthm、multicol、siunitx、circuitikz、subfigure —— 需要时
+% 照 原版参考.tex 的导言区加回来即可 (MiKTeX 会自动联网装; subfigure 已废弃, 用 subcaption)。
 
 \documentclass[11pt]{article}
 
@@ -29,6 +29,7 @@
 \usepackage{ctex} % 支持中文的LaTeX宏包
 \usepackage{amsmath,amsfonts,amssymb,bm} % 数学公式和符号
 \usepackage{graphicx} % 插图
+\usepackage{pdfpages} % \includepdf: 把预习报告/数据记录等 PDF 附在报告后面（附录用）
 \usepackage{fontspec} % 字体设置
 \usepackage{booktabs,multirow,array,bigstrut} % 三线表与表格
 \usepackage{float} % 让 [H] 生效(图/表钉在原地)

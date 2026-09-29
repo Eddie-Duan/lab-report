@@ -436,6 +436,148 @@ def test_attachments_dont_pile_up():
     assert '照片/IMG_1-2.jpg' in r3['归档'], r3['归档']
 
 
+def _inject_body(fmt, f):
+    """在"正文"的位置塞一个标记, 好验证 --head-only 之后它还在。"""
+    if fmt in ('typst', 'md'):
+        f.write_text(f.read_text(encoding='utf-8') + '\nBODYMARKER\n', encoding='utf-8')
+    elif fmt == 'latex':
+        t = f.read_text(encoding='utf-8')
+        f.write_text(t.replace('\\end{document}', 'BODYMARKER\n\\end{document}'), encoding='utf-8')
+    else:                                            # docx: 直接往 document.xml 里插一个段落
+        tmp = f.with_name(f.name + '.tmp')
+        with zipfile.ZipFile(f) as zin, zipfile.ZipFile(tmp, 'w', zipfile.ZIP_DEFLATED) as zout:
+            for item in zin.infolist():
+                data = zin.read(item.filename)
+                if item.filename == 'word/document.xml':
+                    data = data.replace(b'<w:sectPr>',
+                                        b'<w:p><w:r><w:t>BODYMARKER</w:t></w:r></w:p><w:sectPr>')
+                zout.writestr(item, data)
+        tmp.replace(f)
+
+
+def _report_text(fmt, f):
+    """docx 是压缩包, 得先解出 document.xml 才看得到字。"""
+    if fmt == 'docx':
+        with zipfile.ZipFile(f) as z:
+            return z.read('word/document.xml').decode('utf-8')
+    return f.read_text(encoding='utf-8')
+
+
+@case
+def test_head_only_keeps_body():
+    """--head-only 存在的唯一理由: 报告头能改, 已经写好的正文一个字都不许动。"""
+    root = TMP / 'gen4'
+    for fmt, fname in (('typst', '实验报告.typ'), ('latex', '实验报告.tex'),
+                       ('md', '实验报告.md'), ('docx', '实验报告.docx')):
+        r = mr.make(_params(输出格式=fmt), root)
+        f = Path(r['报告文件'])
+        assert f.name == fname, r
+        _inject_body(fmt, f)                        # 假装正文已经写好了
+        r2 = mr.make(_params(输出格式=fmt, 姓名='赵六', 学号='2026K8009900002',
+                             分班分组及座号='2-06-7'), root, head_only=True)
+        assert r2['只更新报告头'] is True, r2
+        assert r2['覆盖已有'] is False, '只改报告头不叫覆盖正文'
+        text = _report_text(fmt, f)
+        assert 'BODYMARKER' in text, f'{fmt}: 正文被冲掉了'
+        assert '赵六' in text, f'{fmt}: 新报告头没写进去'
+        assert '张三' not in text, f'{fmt}: 旧报告头还留着'
+        if fmt == 'latex':                          # LaTeX 那份把分组拆成三段了
+            assert '\\newcommand{\\class}{2}' in text and '\\newcommand{\\group}{06}' in text, fmt
+        else:
+            assert '2-06-7' in text, f'{fmt}: 分组没更新'
+        if fmt == 'typst':                          # 备注块不在报告头范围内, 不许越权删改/堆叠
+            assert text.count('今年要求写思考题') == 1, '备注块被重复堆了一份'
+        meta = json.loads((f.parent / '报告参数.json').read_text(encoding='utf-8'))
+        assert meta['姓名'] == '赵六' and '只更新报告头' in meta['生成方式'], meta
+
+        mr.make(_params(输出格式=fmt, 姓名='赵六'), root, head_only=True)   # 再跑一次要幂等
+        text2 = _report_text(fmt, f)
+        assert text2.count('BODYMARKER') == 1 and '赵六' in text2, fmt
+        if fmt == 'typst':
+            assert text2.count('#let exp_name') == 1, '报告头变量被写重复了'
+
+    # 报告还没生成过时, 不许无声地造一份出来
+    raises(FileNotFoundError, mr.make, _params(实验名称='还没做过的实验'), TMP / 'gen4',
+           head_only=True)
+
+
+@case
+def test_head_only_cli():
+    root = TMP / 'gen5'
+    base = ['--exp', '驻波实验', '--fmt', 'md', '--root', str(root)]
+    rc, out = capture(mr.main, base + ['--name', '张三', '--sid', '2026K8009900001'])
+    assert rc == 0 and '生成成功' in out, out
+    md_path = root / '驻波实验' / '实验数据' / '实验报告.md'
+
+    rc, out = capture(mr.main, base + ['--name', '李四', '--head-only'])
+    assert rc == 0 and '报告头已更新' in out, out
+    md = md_path.read_text(encoding='utf-8')
+    assert '李四' in md and '张三' not in md and '## 实验目的' in md, md[:300]
+    assert '2026K8009900001' in md, '同一个实验的其它字段不该被重生成'
+
+    # 只给要改的那一个字段, 其余必须沿用上次的 报告参数.json, 不许被清空
+    rc, out = capture(mr.main, ['--exp', '驻波实验', '--root', str(root),
+                                '--date', '2026-09-27', '--head-only'])
+    assert rc == 0, out
+    md = md_path.read_text(encoding='utf-8')
+    assert '2026 年 9 月 27 日' in md and '李四' in md and '2026K8009900001' in md, md[:300]
+
+    # 报告头都认不出来了就得报错, 不能瞎写
+    md_path.write_text('# 我自己的报告\n\n随手写的\n', encoding='utf-8')
+    rc, out = capture(mr.main, base + ['--name', '王五', '--head-only'])
+    assert rc == 1 and '失败' in out, out
+
+    rc, out = capture(mr.main, ['--exp', '另一个实验', '--fmt', 'md', '--root', str(root),
+                                '--head-only'])
+    assert rc == 1 and '失败' in out, out           # 没有报告可改就该失败, 别静默造一份
+
+    try:                                            # --force 与 --head-only 语义相反, 不许同时给
+        capture(mr.main, base + ['--force', '--head-only'])
+    except SystemExit as e:
+        assert e.code == 2, e.code
+    else:
+        raise AssertionError('--force 和 --head-only 同时给应该被 argparse 挡下')
+
+
+@case
+def test_appendix_follows_the_report():
+    """预习报告/数据记录 : 必填、要归档、要当附录排在报告最后（四种格式各排一次）。"""
+    root = TMP / 'gen6'
+    src = TMP / 'appx'
+    src.mkdir(exist_ok=True)
+    pre = src / '预习报告 扫描版.pdf'        # 名字里带空格: 归档时要换成下划线(LaTeX 路径不能有空格)
+    rec = src / '数据记录1.jpg'
+    other = src / '说明.txt'
+    pre.write_bytes(b'%PDF-1.4 fake')
+    rec.write_bytes(b'fake jpeg')
+    other.write_text('x', encoding='utf-8')
+    p = _params(预习报告=[str(pre)], 数据记录=[str(rec), str(other)])
+    for fmt in ('typst', 'latex', 'md', 'docx'):
+        r = mr.make(dict(p, 输出格式=fmt), root)
+        data = Path(r['报告文件']).parent
+        assert (data / '预习报告/预习报告_扫描版.pdf').is_file(), '预习报告没归档'
+        assert (data / '数据记录/数据记录1.jpg').is_file(), '数据记录没归档'
+        assert (data / '数据记录/说明.txt').is_file(), '非图片的附件也要归档'
+        text = _report_text(fmt, Path(r['报告文件']))
+        flat = text.replace(r'\quad ', '：')      # LaTeX 那份把全角冒号排成了 \quad
+        assert '附录 A：预习报告' in flat and '附录 B：数据记录' in flat, f'{fmt}: 附录没排上'
+        if fmt == 'typst':
+            assert '#image("数据记录/数据记录1.jpg", width: 100%)' in text, '图片没嵌进附录'
+            assert 'Typst 嵌不进去' in text, 'PDF 在 Typst 里要写明怎么办'
+        elif fmt == 'latex':
+            assert r'\includepdf[pages=-]{预习报告/预习报告_扫描版.pdf}' in text, 'PDF 没排上'
+            assert r'\includegraphics[width=\linewidth]{数据记录/数据记录1.jpg}' in text, '图片没排上'
+            assert text.index(r'\includepdf') < text.index(r'\end{document}'), '附录要在正文之后、末尾之前'
+        elif fmt == 'md':
+            assert '[附录 A：预习报告（PDF）](预习报告/预习报告_扫描版.pdf)' in text, text[-400:]
+            assert '![附录 B：数据记录](数据记录/数据记录1.jpg)' in text, text[-400:]
+        else:
+            assert '数据记录/数据记录1.jpg（图片，直接插到这一行下面）' in text, 'docx 要写清楚怎么插'
+    # 没传就不该凭空生出一节空附录（命令行/agent 可能还没拿到这两个文件）
+    r = mr.make(_params(), root / 'noappendix')
+    assert '附录 A：预习报告' not in Path(r['报告文件']).read_text(encoding='utf-8')
+
+
 @case
 def test_ui_server_end_to_end():
     import urllib.request
@@ -466,19 +608,46 @@ def test_ui_server_end_to_end():
 
         st, up = call('/api/upload?name=' + urllib.parse.quote('照片 1.jpg'), b'fake')
         assert st == 200 and up['name'] == '照片 1.jpg', up
+        _st, up_pre = call('/api/upload?name=' + urllib.parse.quote('预习报告.pdf'), b'%PDF-1.4')
+        _st, up_rec = call('/api/upload?name=' + urllib.parse.quote('数据记录.jpg'), b'fake jpeg')
+
+        # 预习报告 / 数据记录 是必填项: 没传就得挡下来（不能生成一份没附录的报告）
+        st, miss = call('/api/generate', _json.dumps({
+            '实验名称': '测量金属的杨氏模量', '输出格式': 'md', '实验目录': str(root),
+        }).encode('utf-8'))
+        assert st == 400 and '必填' in _json.dumps(miss, ensure_ascii=False), miss
 
         body = _json.dumps({
             '实验名称': '测量金属的杨氏模量', '输出格式': 'md', '姓名': '张三',
             '实验目录': str(root), '记录纸照片': [up], '补充文件': [],
+            '预习报告': [up_pre], '数据记录': [up_rec],
         }).encode('utf-8')
         st, gen = call('/api/generate', body)
         assert st == 200 and gen['ok'], gen
         rep = Path(gen['报告文件'])
         assert rep.is_file() and (rep.parent / '照片/照片 1.jpg').is_file(), gen
+        assert (rep.parent / '预习报告/预习报告.pdf').is_file(), '附录 A 的文件没归档'
+        assert (rep.parent / '数据记录/数据记录.jpg').is_file(), '附录 B 的文件没归档'
+        assert '## 附录 A：预习报告' in rep.read_text(encoding='utf-8')
         assert not (rep.parent / '.上传暂存').exists(), '上传暂存要清干净'
+        # 生成完要给一段可直接粘给 agent 的话（路径写全，省得它再问）
+        talk = gen['给agent的话']
+        assert str(rep.parent) in talk and '报告参数.json' in talk, talk
+        assert '§1' in talk and 'TODO' in talk and '照片' in talk, talk
 
         st, again = call('/api/generate', body)
         assert st == 400 and '已存在' in _json.dumps(again, ensure_ascii=False), again
+
+        # 勾了"只更新报告头": 正文不动, 报告头换成新的
+        rep.write_text(rep.read_text(encoding='utf-8') + '\nBODYMARKER\n', encoding='utf-8')
+        p2 = {'实验名称': '测量金属的杨氏模量', '输出格式': 'md', '姓名': '赵六',
+              '实验目录': str(root), '记录纸照片': [up], '补充文件': [],
+              '预习报告': [up_pre], '数据记录': [up_rec], '只更新报告头': True}
+        st, upd = call('/api/generate', _json.dumps(p2).encode('utf-8'))
+        assert st == 200 and upd['只更新报告头'] is True, upd
+        t = rep.read_text(encoding='utf-8')
+        assert 'BODYMARKER' in t and '赵六' in t and '张三' not in t, t[:200]
+        assert '正文别动' in upd['给agent的话'], upd['给agent的话']
 
         st, bad = call('/api/generate', _json.dumps({'实验名称': '', '输出格式': 'md',
                                                      '实验目录': str(root)}).encode('utf-8'))

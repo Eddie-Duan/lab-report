@@ -36,7 +36,7 @@ UPLOADS = {}          # id -> (文件名, bytes, 时间)
 UPLOAD_LOCK = threading.Lock()
 STATE = {'root': Path('.').resolve(), 'counter': 0}
 
-# 各输出格式靠什么编译; 界面上标一下本机有没有, 免得选完才发现跑不起来
+# 各输出格式靠什么编译; tool_ok 只用来决定界面默认选哪个格式（界面上不标了）
 TOOLS = {'typst': 'typst', 'latex': 'xelatex', 'docx': 'winword', 'md': None}
 
 
@@ -143,11 +143,15 @@ class Handler(BaseHTTPRequestHandler):
         params = json.loads(self._body().decode('utf-8'))
         root = Path(params.pop('实验目录', '') or STATE['root']).expanduser()
         force = bool(params.pop('覆盖已有报告', False))
+        head_only = bool(params.pop('只更新报告头', False))
         fmt = params.get('输出格式', 'typst')
 
         exp_dir, data_dir = mr.target_dirs(params, root)
         stage = data_dir / '.上传暂存'
-        staged = {'补充文件': [], '记录纸照片': []}
+        staged = {key: [] for key in STAGE_SUB}
+        for key in mr.APPENDIX_KEYS:                 # 界面里这俩是必填的（要当附录附在报告后）
+            if not params.get(key):
+                raise ValueError(f'{key}是必填项：先在界面上传（PDF 或图片都行），它会被附在报告最后')
         try:
             for key in staged:
                 for item in params.pop(key, []) or []:
@@ -159,17 +163,18 @@ class Handler(BaseHTTPRequestHandler):
                     if not got:
                         raise ValueError(f'上传的 {key} 已经过期，请重新选一次文件')
                     name, blob = got[0], got[1]
-                    d = stage / ('照片' if key == '记录纸照片' else '补充文件')
+                    d = stage / STAGE_SUB[key]
                     d.mkdir(parents=True, exist_ok=True)
                     f = mr.unique(d / mr.safe_name(name))
                     f.write_bytes(blob)
                     staged[key].append(str(f))
-            params['补充文件'] = staged['补充文件']
-            params['记录纸照片'] = staged['记录纸照片']
-            result = mr.make(params, root, force=force)
+            for key, got in staged.items():
+                params[key] = got
+            result = mr.make(params, root, force=force, head_only=head_only)
         finally:
             shutil.rmtree(stage, ignore_errors=True)   # 先清干净再回响应, 免得客户端看到残留
         result['输出格式中文'] = mr.FORMATS[fmt][1]
+        result['给agent的话'] = handoff_text(result)
         self._json(result)
 
     def _reveal(self):
@@ -180,6 +185,27 @@ class Handler(BaseHTTPRequestHandler):
         import subprocess
         subprocess.Popen(['explorer', str(target)])
         self._json({'ok': True})
+
+
+# 上传暂存名 -> 归档子目录
+STAGE_SUB = {'记录纸照片': '照片', '补充文件': '补充文件',
+             '预习报告': '预习报告', '数据记录': '数据记录'}
+
+
+def handoff_text(result: dict) -> str:
+    """生成完要给 agent 的那段话: 把路径写全，免得它再问你一遍、也免得你自己想措辞。"""
+    data = Path(result['报告文件']).parent          # <实验>/实验数据/
+    meta = result['参数文件']
+    if result.get('只更新报告头'):
+        return ('用 lab-data-workflow skill：我刚刚在界面里改了报告头，'
+                f'字段新值在 {meta}（先读它），报告在 {data}。正文别动。')
+    return ('用 lab-data-workflow skill 处理这个实验：\n'
+            f'· 报告头已填好，字段值在 {meta}（先读它，不用问我报告头）\n'
+            f'· 实验数据目录：{data}\n'
+            f'· 记录纸照片在 {data / "照片"}\n'
+            '· 附录 A/B（预习报告、数据记录）已经排在骨架最后了，别删\n'
+            '先按 SKILL.md §1 把照片逐张转录成原始数据 CSV（认不清的格子写 TODO，'
+            '不要臆测，最后把 TODO 和你的疑问单列给我确认）；我确认后再往下做 §3。')
 
 
 def make_server(port: int, root):
