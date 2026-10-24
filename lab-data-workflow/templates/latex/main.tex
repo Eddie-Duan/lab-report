@@ -89,8 +89,15 @@
 \newcommand{\dateMonth}{}                        % 月
 \newcommand{\dateDay}{}                          % 日
 \newcommand{\room}{}                             % 实验地点
-\newcommand{\others}{$\square$}                  % 调课/补课, 改了就打勾: $\square$\hspace{-1em}$\surd$
+\newcommand{\others}{$\square$}                  % 调课/补课, 打了勾就是 $\square$\hspace{-1em}$\surd$
+\newcommand{\grade}{}                            % 成绩评定(老师填, 一般留空)
 %%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+% 附录里的 PDF 靠 pdfpages 塞进来; 没装就画一个看得见的提示框, 不要直接编译失败
+\IfFileExists{pdfpages.sty}{\usepackage{pdfpages}}{%
+  \newcommand{\includepdf}[2][]{\begin{center}\fbox{\parbox{0.8\linewidth}{\centering
+    这里本该嵌入 PDF 附件: \texttt{#2}\\[2pt]
+    （本机没装 pdfpages 宏包；装好后重新编译, 或手动把这份 PDF 附在报告后面）}}\end{center}}}
 
 \begin{document}
 
@@ -109,7 +116,7 @@
     \underline{\makebox[2em][c]{\dateDay}}\emph{日}
     \emph{实验地点}\underline{{\makebox[4em][c]\room}}
     \emph{调课/补课} \underline{\makebox[3em][c]{\others\ 是}}
-    \emph{成绩评定} \underline{\hspace{5em}}
+    \emph{成绩评定} \underline{\makebox[5em][c]{\grade}}
     {\noindent}
     \rule[8pt]{17cm}{0.2em}
 \end{center}

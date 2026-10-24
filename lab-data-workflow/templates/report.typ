@@ -27,6 +27,8 @@
 #show table: it => align(center, it)
 
 // ============ 报告头（UI / make_report.py 改这一段）============
+// 字段与顺序照课程《基础物理实验》统一报告头: 实验名称 / 指导教师 / 姓名 / 学号 /
+// 分班分组及座号 / 实验日期 / 实验地点 / 调课补课 / 成绩评定
 #let exp_name = ""          // 实验名称
 #let teacher = ""           // 指导教师
 #let student = ""           // 姓名
@@ -34,7 +36,9 @@
 #let class_group = ""       // 分班分组及座号, 形如 1-04-5
 #let date = ""              // 实验日期, 形如 2026 年 9 月 26 日
 #let room = ""              // 实验地点
-#let mates = ""             // 同组人员
+#let others = ""            // 调课/补课: 填了就打勾(值写"是"或任意非空)
+#let grade = ""             // 成绩评定(老师填, 一般留空)
+#let mates = ""             // 同组人员(官方报告头没有这一项, 填了才显示)
 
 // 单位: 写 #u("mm") 得到带前置间距的正体 mm
 #let u(s) = h(0.17em) + math.upright(s)
@@ -69,12 +73,14 @@
     columns: (auto, 1fr, auto, 1fr),
     align: (right, left, right, left),
     stroke: none,
-    inset: (x: 6pt, y: 2.5pt),
-    [实验名称], [#fill(exp_name, w: 12em)], [指导教师], [#fill(teacher, w: 6em)],
-    [姓名], [#fill(student, w: 6em)], [学号], [#fill(student_id, w: 9em)],
-    [分班分组及座号], [#fill(class_group, w: 9em)], [实验日期], [#fill(date, w: 9em)],
-    [实验地点], [#fill(room, w: 6em)], [同组人员], [#fill(mates, w: 6em)],
+    inset: (x: 6pt, y: 2pt),
+    [实验名称], table.cell(colspan: 3)[#fill(exp_name, w: 26em)],
+    [指导教师], [#fill(teacher, w: 8em)], [姓名], [#fill(student, w: 6em)],
+    [学号], [#fill(student_id, w: 9em)], [分班分组及座号], [#fill(class_group, w: 7em)],
+    [实验日期], [#fill(date, w: 8em)], [实验地点], [#fill(room, w: 5em)],
+    [调课/补课], [#if others == "" { [□] } else { [☑] } 是], [成绩评定], [#fill(grade, w: 5em)],
   )
+  #if mates != "" [#v(0.2em) #text(size: 10pt)[同组人员：#mates]]
 ]
 
 = 实验目的

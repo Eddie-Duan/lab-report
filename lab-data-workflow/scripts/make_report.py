@@ -121,6 +121,52 @@ def file_kind(rel: str) -> str:
     return 'pdf' if ext == '.pdf' else ('img' if ext in IMG_EXT else 'other')
 
 
+def img_size(path) -> tuple:
+    """读 PNG/JPEG 的像素尺寸, 只认文件头, 不引入 Pillow 依赖。认不出就 (0, 0)。"""
+    try:
+        data = Path(path).read_bytes()[:64 * 1024]
+    except OSError:
+        return (0, 0)
+    if data.startswith(b'\x89PNG') and len(data) > 24:
+        w = int.from_bytes(data[16:20], 'big')
+        h = int.from_bytes(data[20:24], 'big')
+        return (w, h)
+    if data.startswith(b'\xff\xd8'):
+        i = 2
+        while i + 9 < len(data):
+            if data[i] != 0xFF:
+                i += 1
+                continue
+            marker = data[i + 1]
+            if marker in (0xC0, 0xC1, 0xC2, 0xC3, 0xC5, 0xC6, 0xC7,
+                          0xC9, 0xCA, 0xCB, 0xCD, 0xCE, 0xCF):
+                h = int.from_bytes(data[i + 5:i + 7], 'big')
+                w = int.from_bytes(data[i + 7:i + 9], 'big')
+                return (w, h)
+            if marker in (0xD8, 0xD9) or 0xD0 <= marker <= 0xD7:
+                i += 2
+                continue
+            seglen = int.from_bytes(data[i + 2:i + 4], 'big')
+            i += 2 + max(seglen, 2)
+    return (0, 0)
+
+
+# 附录图排版: 每页放 2 张, 别一张图占一页 —— 报告总页数要压在 10 页以内(含附录)
+APPX_BOX_CM = (16.0, 11.5)          # (宽, 高) 上限, A4 + 2.3cm 页边距的大致可用区
+APPX_BOX_IN = (5.9, 4.4)            # docx 用英寸
+EMU_PER_IN = 914400
+EMU_PER_CM = 360000
+
+
+def fit_cm(path) -> float:
+    """算出这张图该显示多宽(cm), 同时不超过高上限。尺寸读不出来就按满宽。"""
+    w, h = img_size(path)
+    max_w, max_h = APPX_BOX_CM
+    if not w or not h:
+        return max_w
+    return round(min(max_w, max_h * w / h), 1)
+
+
 def appendix_typst(p: dict) -> str:
     out = []
     for label, files in appendix_items(p):
@@ -128,7 +174,8 @@ def appendix_typst(p: dict) -> str:
         for rel in files:
             kind = file_kind(rel)
             if kind == 'img':
-                out.append(f'#image("{rel}", width: 100%)')
+                # 限高: 一张图别吃掉整页, 报告要压在 10 页内
+                out.append(f'#align(center)[#image("{rel}", height: 44%)]')
             elif kind == 'pdf':
                 out.append(f'// {rel} 是 PDF, Typst 嵌不进去: 改用 LaTeX 出报告, '
                            '或先用 PDF 工具把两份合并')
@@ -148,9 +195,13 @@ def appendix_latex(p: dict) -> str:
             posix = rel.replace('\\', '/')
             kind = file_kind(rel)
             if kind == 'img':
-                out += [r'\includegraphics[width=\linewidth]{' + posix + '}', r'\clearpage']
+                # 限高 + 居中, 每页两张; 图之间不再 \clearpage(那是页数翻倍的主要原因)
+                out += [r'\begin{center}',
+                        r'\includegraphics[width=\linewidth,height=0.44\textheight,keepaspectratio]{'
+                        + posix + '}',
+                        r'\end{center}', r'\vspace{0.3em}']
             elif kind == 'pdf':
-                out.append(r'\includepdf[pages=-]{' + posix + '}')   # 需要 pdfpages 宏包
+                out.append(r'\includepdf[pages=-,fitpaper=true]{' + posix + '}')   # 缺 pdfpages 会画提示框
             else:
                 out.append('% 附件 ' + rel + '（非图片/PDF）排不进 PDF，手动附上')
     return '\n'.join(out) + '\n'
@@ -183,6 +234,8 @@ def typst_head_vals(p: dict) -> dict:
         'class_group': p['分班分组及座号'],
         'date': f'{y} 年 {mo} 月 {d} 日' if y else p['实验日期'],
         'room': p['实验地点'],
+        'others': p['调课补课'],
+        'grade': p['成绩评定'],
         'mates': p['同组人员'],
     }
 
@@ -221,10 +274,13 @@ def notes_block(text: str, prefix: str, lines):
 def latex_head_vals(p: dict) -> dict:
     _, (y, mo, d) = norm_date(p['实验日期'])
     cls, grp, seat = split_group(p['分班分组及座号'])
+    # 官方报告头是"调课/补课 □是": 打了勾就往方框里叠一个对号(模板注释里就是这么教的)
+    tick = r'$\square$\hspace{-1em}$\surd$' if p['调课补课'] else r'$\square$'
     return {
         'experiName': p['实验名称'], 'supervisor': p['指导教师'], 'name': p['姓名'],
         'studentNum': p['学号'], 'class': cls, 'group': grp, 'seat': seat,
         'dateYear': y, 'dateMonth': mo, 'dateDay': d, 'room': p['实验地点'],
+        'others': tick, 'grade': p['成绩评定'],
     }
 
 
@@ -260,17 +316,21 @@ def head_latex(dst: Path, p: dict):
 
 
 def md_head_lines(p: dict) -> list:
-    """markdown 的报告头: 标题 + 两列四行的字段表。"""
+    """markdown 的报告头: 标题 + 两列字段表, 字段与顺序照课程统一报告头。"""
     disp, _ = norm_date(p['实验日期'])
     rows = [
         ('实验名称', p['实验名称']), ('指导教师', p['指导教师']),
         ('姓名', p['姓名']), ('学号', p['学号']),
         ('分班分组及座号', p['分班分组及座号']), ('实验日期', disp),
-        ('实验地点', p['实验地点']), ('同组人员', p['同组人员']),
+        ('实验地点', p['实验地点']), ('调课/补课', '☑ 是' if p['调课补课'] else '□ 是'),
+        ('成绩评定', p['成绩评定']),                      # 留空也留着这一格: 四个格式的字段集要一致
     ]
+    if p['同组人员']:
+        rows.append(('同组人员', p['同组人员']))
     out = ['# 《基础物理实验》实验报告', '']
     for i in range(0, len(rows), 2):
-        a, b = rows[i], rows[i + 1]
+        a = rows[i]
+        b = rows[i + 1] if i + 1 < len(rows) else ('', '')
         out.append(f'| {a[0]} | {a[1]} | {b[0]} | {b[1]} |')
         if i == 0:
             out.append('|---|---|---|---|')
@@ -314,7 +374,11 @@ def head_md(dst: Path, p: dict):
 # 手搓最小 docx 包也能被 Word 打开, 但样式/主题/页眉页脚/编号这些都得自己补;
 # 直接沿用官方那份的包结构, Word 亲生的最稳(顺便继承它的字体与页面设置)。
 
-W_NS = 'xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"'
+W_NS = ('xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" '
+        'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" '
+        'xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing" '
+        'xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" '
+        'xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture"')
 DOCX_CONTAINER = TEMPLATES / 'docx' / '官方报告头容器.docx'
 
 
@@ -351,14 +415,16 @@ def w_cell(text, width, *, bold=False, blank=9):
 
 
 def build_docx_head(p: dict) -> list:
-    """报告头三件套: 大标题 + 字段表 + 一条分隔线。整份生成与 --head-only 共用。"""
+    """报告头三件套: 大标题 + 字段表 + 一条分隔线。字段与顺序照课程统一报告头。
+    整份生成与 --head-only 共用。"""
     disp, _ = norm_date(p['实验日期'])
     cols = (1900, 2900, 1900, 2400)
     rows = [
         ('实验名称', p['实验名称'], '指导教师', p['指导教师']),
         ('姓名', p['姓名'], '学号', p['学号']),
         ('分班分组及座号', p['分班分组及座号'], '实验日期', disp),
-        ('实验地点', p['实验地点'], '同组人员', p['同组人员']),
+        ('实验地点', p['实验地点'], '调课/补课', '☑ 是' if p['调课补课'] else '□ 是'),
+        ('成绩评定', p['成绩评定'], '同组人员', p['同组人员']),
     ]
     tbl = ['<w:tbl><w:tblPr><w:tblW w:w="9100" w:type="dxa"/><w:tblBorders>'
            + ''.join(f'<w:{s} w:val="none" w:sz="0" w:space="0" w:color="auto"/>'
@@ -382,21 +448,61 @@ def build_docx_head(p: dict) -> list:
     return body
 
 
-def appendix_docx(p: dict) -> list:
-    """docx 里塞不进 PDF，图片也得另建 media 关系。这里把附录节和文件名列好，
-    你在 Word 里「插入 → 图片」拖一下即可（文件就在报告同目录）。"""
-    tip = {'img': '图片，直接插到这一行下面', 'pdf': 'PDF，Word 里插不进去，当附件单独交'}
-    body = []
+def docx_picture(rid: str, pid: int, name: str, w_px: int, h_px: int) -> str:
+    """一张内嵌图片的 DrawingML。按 APPX_BOX_IN 缩放, 保证每页能放两张。"""
+    max_w, max_h = APPX_BOX_IN
+    w_in = (w_px or 0) / 96.0
+    h_in = (h_px or 0) / 96.0
+    if w_in <= 0 or h_in <= 0:                       # 尺寸读不出来就按上限框排
+        w_in, h_in = max_w, max_h
+    s = min(max_w / w_in, max_h / h_in, 1.0)
+    cx, cy = int(w_in * s * EMU_PER_IN), int(h_in * s * EMU_PER_IN)
+    return (
+        '<w:p><w:pPr><w:jc w:val="center"/></w:pPr><w:r><w:drawing>'
+        f'<wp:inline distT="0" distB="0" distL="0" distR="0">'
+        f'<wp:extent cx="{cx}" cy="{cy}"/><wp:docPr id="{pid}" name="Picture{pid}" descr="{esc(name)}"/>'
+        '<a:graphic><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture">'
+        '<pic:pic><pic:nvPicPr>'
+        f'<pic:cNvPr id="{pid}" name="{esc(name)}"/><pic:cNvPicPr/></pic:nvPicPr>'
+        f'<pic:blipFill><a:blip r:embed="{rid}"/><a:stretch><a:fillRect/></a:stretch></pic:blipFill>'
+        f'<pic:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="{cx}" cy="{cy}"/></a:xfrm>'
+        '<a:prstGeom prst="rect"><a:avLst/></a:prstGeom></pic:spPr>'
+        '</pic:pic></a:graphicData></a:graphic></wp:inline></w:drawing></w:r></w:p>')
+
+
+def appendix_docx(p: dict, data_dir: Path):
+    """附录 A/B: 图片真的嵌进 docx(加 media 部件 + 关系), PDF 塞不进去就留一行说明。
+    返回 (段落 XML 列表, 待加入包的 media 列表)。"""
+    body, media = [], []
+    n = 0
     for label, files in appendix_items(p):
         body.append(w_p(w_run(label, bold=True, size=24, font='SimHei', ea='SimHei'),
                         align='left', spacing=60))
         for rel in files:
-            body.append(w_p(w_run(f'{rel}（{tip.get(file_kind(rel), "这个后缀 Word 也不认，单独交")}）',
-                                  size=21)))
-    return body
+            kind = file_kind(rel)
+            src = data_dir / rel
+            if kind == 'img' and src.is_file():
+                n += 1
+                ext = src.suffix.lower().lstrip('.')          # 部件名保留原后缀(jpg 就写 jpg)
+                mime = 'image/jpeg' if ext in ('jpg', 'jpeg') else \
+                       ('image/svg+xml' if ext == 'svg' else 'image/' + ext)
+                media.append({
+                    'part': f'word/media/appendix{n}.{ext}',
+                    'ctype': mime, 'ext': ext, 'data': src.read_bytes(),
+                    'rid': f'rIdImg{n}',
+                })
+                w_px, h_px = img_size(src)
+                body.append(docx_picture(f'rIdImg{n}', n, src.name, w_px, h_px))
+            elif kind == 'pdf':
+                body.append(w_p(w_run(
+                    f'{rel}（PDF — Word 里塞不进去: 当附件单独交, 或用 LaTeX 出报告自动附上）', size=18)))
+            else:
+                body.append(w_p(w_run(f'{rel}（这个后缀 Word 也不认，单独交）', size=18)))
+    return body, media
 
 
-def build_docx_body(p: dict) -> str:
+def build_docx_body(p: dict, data_dir: Path):
+    """返回 (document.xml 文本, media 列表)。"""
     body = build_docx_head(p)
     for h in SECTIONS:
         body.append(w_p(w_run(h, bold=True, size=24, font='SimHei', ea='SimHei'),
@@ -410,12 +516,30 @@ def build_docx_body(p: dict) -> str:
             body.append(w_p(w_run(ln, size=21)))
     if p['补充文件']:
         body.append(w_p(w_run('参考文件（报告同目录）：' + '、'.join(p['补充文件']), size=18)))
-    body += appendix_docx(p)                      # 预习报告 / 数据记录 附在最后
+    appx, media = appendix_docx(p, data_dir)      # 预习报告 / 数据记录 附在最后
+    body += appx
 
     sect = ('<w:sectPr><w:pgSz w:w="11906" w:h="16838"/><w:pgMar w:top="1440" w:right="1134" '
             'w:bottom="1440" w:left="1134" w:header="851" w:footer="992" w:gutter="0"/></w:sectPr>')
     return ('<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n'
-            f'<w:document {W_NS}><w:body>' + ''.join(body) + sect + '</w:body></w:document>')
+            f'<w:document {W_NS}><w:body>' + ''.join(body) + sect + '</w:body></w:document>'), media
+
+
+def patch_content_types(xml: str, media) -> str:
+    """给新加的图片后缀补 Default 条目, 否则 Word 说文件损坏。"""
+    for m in media:
+        key = f'Extension="{m["ext"]}"'
+        if key not in xml and key.upper() not in xml.upper():
+            xml = xml.replace('</Types>',
+                              f'<Default {key} ContentType="{m["ctype"]}"/></Types>')
+    return xml
+
+
+def patch_docx_rels(xml: str, media) -> str:
+    rel = ''.join(
+        f'<Relationship Id="{m["rid"]}" Type="http://schemas.openxmlformats.org/officeDocument/'
+        f'2006/relationships/image" Target="media/{Path(m["part"]).name}"/>' for m in media)
+    return xml.replace('</Relationships>', rel + '</Relationships>')
 
 
 def set_core_props(xml: str, p: dict) -> str:
@@ -430,7 +554,7 @@ def set_core_props(xml: str, p: dict) -> str:
 def fill_docx(dst: Path, p: dict):
     if not DOCX_CONTAINER.is_file():
         raise FileNotFoundError(f'缺少 docx 容器: {DOCX_CONTAINER}')
-    doc = build_docx_body(p)
+    doc, media = build_docx_body(p, dst.parent)
     with zipfile.ZipFile(DOCX_CONTAINER) as zin, \
             zipfile.ZipFile(dst, 'w', zipfile.ZIP_DEFLATED) as zout:
         for item in zin.infolist():
@@ -439,7 +563,13 @@ def fill_docx(dst: Path, p: dict):
                 data = doc.encode('utf-8')
             elif item.filename == 'docProps/core.xml':      # 属性里的作者/标题换成自己的
                 data = set_core_props(data.decode('utf-8'), p).encode('utf-8')
+            elif item.filename == '[Content_Types].xml' and media:
+                data = patch_content_types(data.decode('utf-8'), media).encode('utf-8')
+            elif item.filename == 'word/_rels/document.xml.rels' and media:
+                data = patch_docx_rels(data.decode('utf-8'), media).encode('utf-8')
             zout.writestr(item, data)
+        for m in media:                                  # 附录图片本体
+            zout.writestr(m['part'], m['data'])
 
 
 def head_docx(dst: Path, p: dict):
@@ -543,7 +673,7 @@ def make(params: dict, root: Path, force=False, copy_files=True, head_only=False
 
     p = {}
     for k in ('实验名称', '指导教师', '姓名', '学号', '分班分组及座号',
-              '实验日期', '实验地点', '同组人员', '补充说明'):
+              '实验日期', '实验地点', '同组人员', '调课补课', '成绩评定', '补充说明'):
         v = params.get(k)
         p[k] = '' if v is None else str(v).strip()
     p['实验名称'] = exp
@@ -615,6 +745,8 @@ def main(argv):
     ap.add_argument('--group', help='分班分组及座号, 如 1-04-5(可空)')
     ap.add_argument('--room', help='实验地点(可空)')
     ap.add_argument('--mates', help='同组人员(可空)')
+    ap.add_argument('--others', help='调课/补课: 给了值就打勾(写"是"即可, 空=不勾)')
+    ap.add_argument('--grade', help='成绩评定(老师填, 一般留空)')
     ap.add_argument('--notes', help='补充说明(可空)')
     ap.add_argument('--file', action='append', default=[], help='补充文件, 可重复')
     ap.add_argument('--photo', action='append', default=[], help='记录纸照片, 可重复')
@@ -648,7 +780,8 @@ def main(argv):
             for k, v in (('实验名称', a.exp), ('输出格式', a.fmt), ('姓名', a.name),
                          ('指导教师', a.teacher), ('实验日期', a.date), ('学号', a.sid),
                          ('分班分组及座号', a.group), ('实验地点', a.room),
-                         ('同组人员', a.mates), ('补充说明', a.notes)):
+                         ('同组人员', a.mates), ('调课补课', a.others),
+                         ('成绩评定', a.grade), ('补充说明', a.notes)):
                 if v is not None:                   # None = 没给这个选项; '' = 你要清空它
                     params[k] = v
             params.setdefault('实验目录名', dir_name)   # 底稿里已经定好了就听底稿的
@@ -658,7 +791,8 @@ def main(argv):
             params = {'实验名称': a.exp, '输出格式': a.fmt or 'typst', '姓名': a.name,
                       '指导教师': a.teacher, '实验日期': a.date, '学号': a.sid,
                       '分班分组及座号': a.group, '实验地点': a.room,
-                      '同组人员': a.mates, '补充说明': a.notes,
+                      '同组人员': a.mates, '调课补课': a.others, '成绩评定': a.grade,
+                      '补充说明': a.notes,
                       '补充文件': a.file, '记录纸照片': a.photo,
                       '预习报告': a.prelab, '数据记录': a.record,
                       '实验目录名': a.dir_name}

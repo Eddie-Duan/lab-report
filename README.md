@@ -21,6 +21,11 @@
 python lab-data-workflow/ui/server.py --root <实验目录>     # 默认 http://127.0.0.1:8722
 ```
 
+Windows 上更省事：直接双击 **`lab-data-workflow/打开界面.cmd`** —— 它自己找 python、自动用 `--open`
+把浏览器打开，实验目录默认用 `sample\my_sample`（找不到就用桌面）；想换目录，把这个 `.cmd` 拖到
+那个目录上再松手即可。那个文件是 **GBK + CRLF** 编码（cmd 在中文 Windows 上按 ANSI 读批处理），
+用编辑器改它时别存成 UTF-8。
+
 填实验名称（从 `experiments.json` 的 20 个往年实验名里搜）、输出格式（Typst / LaTeX / Word / Markdown）、
 姓名、教师、日期（这三项可留空）、记录纸照片、补充文件、补充说明，
 以及 **预习报告、数据记录**（这两项必填），然后生成到
@@ -48,11 +53,12 @@ lab-data-workflow/
   experiments.json         往年实验名清单（界面搜索用）
   ui/server.py             报告头界面（标准库 HTTP 服务，不联网；人用，可选）
   ui/index.html            界面本身（无外部依赖，离线可用）
+  打开界面.cmd            Windows 双击就能启动界面（GBK+CRLF，别用 UTF-8 编辑器保存）
   scripts/prep_photo.py    照片预处理：总览／转正／切半／裁切放大／去背景补光
   scripts/csv_tables.py    带分段标记的原始数据 CSV 读写
   scripts/to_utf8.py       GBK → UTF-8 BOM（解决 Excel 中文 CSV 乱码）
   scripts/make_report.py   按参数生成报告骨架（typst/latex/docx/md）；--head-only 只改报告头不动正文
-  scripts/selftest.py      上面这些的回归自测（30 个用例），改完跑一遍
+  scripts/selftest.py      上面这些的回归自测（31 个用例），改完跑一遍
   templates/report.typ     Typst 报告模板（三线表、公式编号、中文字体、报告头变量）
   templates/latex/main.tex LaTeX 报告模板（学长模板的导言区+报告头，正文清空）
   templates/latex/原版参考.tex  学长模板的完整原版（课程推荐模板）——要加宏包/改版式照它抄
@@ -105,7 +111,7 @@ python lab-data-workflow/scripts/selftest.py
 
 覆盖编码嗅探、同名分段、行列数不匹配、错字与空格子的区分、裁切坐标换算、去背景的极性、
 四种输出格式的报告头填充、只看报告头不动正文、四种格式的附录 A/B 排版、附件归档去重、
-界面后端全流程等易错点（30 个用例），全绿再提交。
+界面后端全流程等易错点（31 个用例），全绿再提交。
 
 ## 说明
 

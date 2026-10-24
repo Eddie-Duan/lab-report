@@ -148,12 +148,13 @@
       </div>
       <div style="margin-top:14px">
         <details>
-          <summary>更多信息（学号 / 分组座号 / 地点 / 同组人员）</summary>
+          <summary>更多信息（学号 / 分组座号 / 地点 / 调课补课 / 同组人员）</summary>
           <div class="grid g2">
             <div><label for="sid">学号</label><input type="text" id="sid"></div>
             <div><label for="group">分班分组及座号 <span class="hint">如 1-04-5</span></label><input type="text" id="group" placeholder="1-04-5"></div>
             <div><label for="room">实验地点</label><input type="text" id="room"></div>
-            <div><label for="mates">同组人员</label><input type="text" id="mates"></div>
+            <div><label for="mates">同组人员 <span class="hint">（官方报告头没有这项，填了才显示）</span></label><input type="text" id="mates"></div>
+            <div><label class="check" for="others"><input type="checkbox" id="others"> 调课 / 补课</label></div>
           </div>
         </details>
       </div>
@@ -187,7 +188,8 @@
       </div>
       <p class="hint" style="margin:10px 0 0">
         这两项会归档到 <code>实验数据/预习报告/</code>、<code>实验数据/数据记录/</code>，并当<b>附录 A / 附录 B
-        排在报告最后</b>（LaTeX 那份用 <code>pdfpages</code> 直接嵌进 PDF；Typst 能嵌图片，PDF 嵌不了）。
+        排在报告最后</b>（LaTeX 用 <code>pdfpages</code> 或限高插图；Word 直接内嵌图片；Typst 能嵌图片，PDF 嵌不了）。
+        附录图会<b>自动限高、每页两张</b> —— 全报告要压在 <b>10 页以内</b>（含附录），别再把图按原尺寸铺满整页。
       </p>
       <div style="margin-top:14px">
         <label for="notes">补充说明 <span class="hint">（给写报告的自己或 agent 看；生成的文件里会以注释/末尾附注形式带上，定稿前删掉）</span></label>
@@ -344,6 +346,7 @@ $('f').addEventListener('submit', async (ev) => {
     '分班分组及座号': $('group').value.trim(),
     '实验地点': $('room').value.trim(),
     '同组人员': $('mates').value.trim(),
+    '调课补课': $('others').checked ? '是' : '',
     '补充说明': $('notes').value,
     '实验目录': $('root').value.trim(),
     '覆盖已有报告': $('force').checked,

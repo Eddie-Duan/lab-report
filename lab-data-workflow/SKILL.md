@@ -84,6 +84,10 @@ ls <SKILL>/ui/                # server.py index.html —— §0 的界面（可�
 python <SKILL>/ui/server.py --root <实验目录>     # 默认 http://127.0.0.1:8722
 ```
 
+Windows 上还有个更省事的：**双击 `<SKILL>/打开界面.cmd`** —— 它自己找 python、自动用 `--open`
+把浏览器打开，实验目录默认用 `..\sample\my_sample`（找不到就用桌面）。想指定目录就把这个 `.cmd`
+拖到那个目录上再松手。（那个文件是 **GBK + CRLF** 编码，用编辑器改它时别存成 UTF-8，cmd 会读乱。）
+
 界面里能填：**实验名称**（从 `experiments.json` 的 20 个往年实验名里搜，也能自己写）、
 **输出格式**（Typst / LaTeX / Word / Markdown）、学生姓名、教师姓名、实验日期（这三项可留空）、
 学号、分班分组及座号、实验地点、同组人员、记录纸照片、补充文件、补充说明。
@@ -324,6 +328,18 @@ Z_PLUS = 100.0                      # 鼓轮过一圈, 旁注 "(+100)"
 
 ## §4 报告
 
+**硬指标：全报告 ≤10 页（含附录 A/B）。** 超了按这个顺序压，别靠缩字号糊弄：
+
+1. **附录**：一张图别占一页。生成器已把附录图限高到 44% 页高（LaTeX `height=0.44\textheight,keepaspectratio`、
+   Typst `height: 44%`、docx 按 5.9×4.4 英寸框缩放），正常一页两张；PDF 附录用 `\includepdf`，整份插进来。
+2. **图**：同类截图/曲线合成一张多子图（`subcaption` 并排、或 Typst 里 `#grid`），单图宽 ≤0.8\linewidth。
+3. **公式**：中间推导并成一行（`$a=b=c$`），同一个式子全文只排一次。
+4. **文字**：按 §4.1 删复述与铺垫；**一节不超过 1 页**。
+5. 前面都试过才动页边距 / `\vspace` / `leading`。
+
+页数还超，说明内容真的多：砍与结论无关的现象描述和冗余数据表，**别牺牲数据本身的准确性**。
+报告页数跟分数无关（课程要求里明写着"成绩与篇幅无关"）。
+
 ### 4.1 文风（用户明确的底线）
 
 - **删掉所有中间代入算式**。"没人要看你列算式算平均值"——`d̄=(0.185+…)/6=0.18517` 这种
@@ -371,13 +387,15 @@ MiKTeX 缺包会联网自动装（也能手动 `mpm --install=<包>`）。
 
 - 骨架末尾那两节**别删**（LaTeX 里是 `\section*{附录 A\quad 预习报告}` 配 `\includepdf`/`\includegraphics`
   摆在 `\end{document}` 之前）；也别把正文写到附录后面去。
-- **LaTeX**：图片排成 `\includegraphics[width=\linewidth]{数据记录/xxx.jpg}`，PDF 排成
-  `\includepdf[pages=-]{预习报告/xxx.pdf}`（导言区已加 `\usepackage{pdfpages}`，MiKTeX 会自动装）。
-  编译出来附录就在报告后面，不用手工合并。
-- **Typst**：图片能嵌；**PDF 嵌不进去**，骨架里只留了注释 —— 碰到 PDF 就告诉用户改用 LaTeX 出，
-  或先用 PDF 工具把两份合并。
-- **Word / Markdown**：只能列文件名（Word 里插不了 PDF）。按骨架里的提示让用户把图片插进那一节，
-  或提醒这两个文件单独提交。
+- **LaTeX**：图片排成 `\includegraphics[width=\linewidth,height=0.44\textheight,keepaspectratio]{数据记录/xxx.jpg}`
+  （**限高是关键**：不限高的话手机竖拍图一张就占满一页，附录能多出两三页），图片之间不加 `\clearpage`；
+  整段附录只在开头有一个 `\clearpage`。PDF 排成 `\includepdf[pages=-,fitpaper=true]{预习报告/xxx.pdf}`；
+  导言区用 `\IfFileExists{pdfpages.sty}` 兜着 —— 装了就真嵌，没装就在原位画一个提示框，**不会编译失败**。
+- **Typst**：图片能嵌（`#image(..., height: 44%)`）；**PDF 嵌不进去**，骨架里只留了注释 —— 碰到 PDF
+  就告诉用户改用 LaTeX 出，或先用 PDF 工具把两份合并。
+- **Word**：图片**真的内嵌进 docx**（生成时写 `word/media/` + 关系 + Content_Types，一页两张）；
+  PDF 塞不进去，那一行会写成"当附件单独交，或用 LaTeX 出报告"。**Markdown**：用 `![](路径)` 引用，
+  PDF 用链接。
 - 命令行/agent 路径没有"必填"限制：用 `--prelab <文件>` `--record <文件>` 传（可重复）。
   要是当时还没拿到，就等拿到再生成骨架；已经生成了的，定稿前手工把附录那几行补上去
   （LaTeX 就三行：`\clearpage` + `\section*{附录 A\quad 预习报告}` + `\includepdf[pages=-]{预习报告/xxx.pdf}`）。
@@ -394,8 +412,8 @@ LaTeX 模板的导言区**只留了本机确实装着的包**（`xelatex` 验证
 `adjustbox`、`breqn`、`mathrsfs`、`amsthm` 这些本机没装；要用就加回去，MiKTeX 会自动联网装
 （`mpm --install=circuitikz` 也行）。`subfigure` 已废弃，已换成 `subcaption`。
 
-排版调不下页数时按这个顺序收：图宽 → `leading` → 页边距 → 结果表加
-`#block(breakable: false, ...)` 防止跨页。
+排版压不下页数时按 §4 开头那五条顺序收（附录 → 图 → 公式 → 文字 → 页边距），
+结果表还可以加 `#block(breakable: false, ...)` 防跨页。
 
 ---
 

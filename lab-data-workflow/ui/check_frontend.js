@@ -24,11 +24,11 @@ for (const id of ['reveal-btn', 'photos-list', 'attachments-list', 'prelabs-list
 
 // --- 3. 表单控件与后端字段一一对应 ---
 for (const f of ['exp', 'dir', 'student', 'teacher', 'date', 'sid', 'group', 'room',
-                 'mates', 'notes', 'root', 'force', 'head-only', 'prelabs', 'records']) {
+                 'mates', 'others', 'notes', 'root', 'force', 'head-only', 'prelabs', 'records']) {
   say(htmlIds.has(f), `<input> 字段 ${f} 存在`);
 }
 for (const f of ['实验名称', '实验目录名', '输出格式', '姓名', '指导教师', '实验日期', '学号',
-                 '分班分组及座号', '实验地点', '同组人员', '补充说明', '实验目录',
+                 '分班分组及座号', '实验地点', '同组人员', '调课补课', '补充说明', '实验目录',
                  '覆盖已有报告', '只更新报告头', '记录纸照片', '补充文件',
                  '预习报告', '数据记录']) {
   say(js.includes(`'${f}'`), `提交参数里有 ${f}`);

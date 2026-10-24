@@ -8,6 +8,7 @@
 """
 import io
 import json
+import re
 import shutil
 import sys
 import urllib.error
@@ -380,7 +381,8 @@ def test_make_four_formats():
     assert '#let exp_name = "测量金属的杨氏模量"' in typ, 'typst 报告头没填进去'
     assert '#let student = "张三"' in typ and '#let date = "2026 年 9 月 26 日"' in typ
     assert '今年要求写思考题' in typ, '补充说明要以注释形式带上'
-    assert '[实验名称], [#fill(exp_name' in typ, '报告头表格应该引用变量而不是写死'
+    assert '[实验名称], table.cell(colspan: 3)[#fill(exp_name' in typ, \
+        '报告头表格应该引用变量(实验名称跨列, 和统一报告头一致), 而不是写死'
 
     tex = (data / '实验报告.tex').read_text(encoding='utf-8')
     assert '\\newcommand{\\experiName}{测量金属的杨氏模量}' in tex, 'LaTeX 报告头没填'
@@ -562,20 +564,60 @@ def test_appendix_follows_the_report():
         flat = text.replace(r'\quad ', '：')      # LaTeX 那份把全角冒号排成了 \quad
         assert '附录 A：预习报告' in flat and '附录 B：数据记录' in flat, f'{fmt}: 附录没排上'
         if fmt == 'typst':
-            assert '#image("数据记录/数据记录1.jpg", width: 100%)' in text, '图片没嵌进附录'
+            # 限高: 附录图不能一张吃掉整页(报告总页数要压住)
+            assert '#image("数据记录/数据记录1.jpg", height: 44%)' in text, '图片没嵌进附录或没限高'
             assert 'Typst 嵌不进去' in text, 'PDF 在 Typst 里要写明怎么办'
         elif fmt == 'latex':
-            assert r'\includepdf[pages=-]{预习报告/预习报告_扫描版.pdf}' in text, 'PDF 没排上'
-            assert r'\includegraphics[width=\linewidth]{数据记录/数据记录1.jpg}' in text, '图片没排上'
+            assert r'\includepdf[pages=-,fitpaper=true]{预习报告/预习报告_扫描版.pdf}' in text, 'PDF 没排上'
+            assert r'\includegraphics[width=\linewidth,height=0.44\textheight,keepaspectratio]' \
+                   r'{数据记录/数据记录1.jpg}' in text, '图片没排上或没限高'
+            assert text.count(r'\clearpage') == 1, '附录里不该一图一页(那会让页数翻倍)'
             assert text.index(r'\includepdf') < text.index(r'\end{document}'), '附录要在正文之后、末尾之前'
         elif fmt == 'md':
             assert '[附录 A：预习报告（PDF）](预习报告/预习报告_扫描版.pdf)' in text, text[-400:]
             assert '![附录 B：数据记录](数据记录/数据记录1.jpg)' in text, text[-400:]
         else:
-            assert '数据记录/数据记录1.jpg（图片，直接插到这一行下面）' in text, 'docx 要写清楚怎么插'
+            with zipfile.ZipFile(r['报告文件']) as z:
+                media = [n for n in z.namelist() if n.startswith('word/media/')]
+                assert media == ['word/media/appendix1.jpg'], f'docx 里图片没真嵌进去: {media}'
+                doc = z.read('word/document.xml').decode('utf-8')
+                assert 'r:embed="rIdImg1"' in doc and 'wp:inline' in doc, 'docx 缺内嵌图片的 XML'
+                rels = z.read('word/_rels/document.xml.rels').decode('utf-8')
+                assert 'media/appendix1.jpg' in rels, 'docx 缺图片关系'
+                assert 'Extension="jpg"' in z.read('[Content_Types].xml').decode('utf-8') \
+                    or 'Extension="jpeg"' in z.read('[Content_Types].xml').decode('utf-8'), \
+                    'docx 的 Content_Types 没声明图片后缀'
+                assert '塞不进去' in doc, 'PDF 附件在 docx 里要写清楚单独交'
     # 没传就不该凭空生出一节空附录（命令行/agent 可能还没拿到这两个文件）
     r = mr.make(_params(), root / 'noappendix')
     assert '附录 A：预习报告' not in Path(r['报告文件']).read_text(encoding='utf-8')
+
+
+@case
+def test_header_is_the_official_one():
+    """四种格式都用课程统一报告头: 同字段、同顺序, 含 调课/补课 与 成绩评定。"""
+    root = TMP / 'gen7'
+    fields = ['实验名称', '指导教师', '姓名', '学号', '分班分组及座号', '实验日期', '实验地点']
+    p = _params(调课补课='是', 成绩评定='')
+    paths = {fmt: Path(mr.make(dict(p, 输出格式=fmt), root)['报告文件'])
+             for fmt in ('typst', 'latex', 'md', 'docx')}
+    for fmt, path in paths.items():
+        raw = _report_text(fmt, path).replace(r'\quad ', '：')
+        # 剥掉注释再比顺序: 导言区/% 实验名称 这类注释里也有字段名, 会把位置搞乱
+        flat = '\n'.join(re.sub(r'(%.*|//.*)$', '', ln) for ln in raw.splitlines()) \
+            if fmt in ('latex', 'typst') else raw
+        for f in fields:
+            assert f in flat, f'{fmt} 缺官方字段 {f}'
+        assert '调课/补课' in flat and '成绩评定' in flat, f'{fmt} 缺 调课/补课 或 成绩评定'
+        pos = [flat.index(f) for f in fields]
+        assert pos == sorted(pos), f'{fmt} 的字段顺序和统一报告头不一致: {pos}'
+    # 调课/补课 打了勾: LaTeX 往方框里叠对号, Typst 打 ☑, Markdown 打 ☑
+    assert r'\newcommand{\others}{$\square$\hspace{-1em}$\surd$}' in _report_text('latex', paths['latex'])
+    assert '#let others = "是"' in _report_text('typst', paths['typst'])
+    assert '☑ 是' in _report_text('md', paths['md'])
+    assert '□ 是' in _report_text('docx', paths['docx']).replace('☑', '□'), 'docx 也该有勾选框'
+    # 成绩评定留空也保留这一格(四个格式的字段集要一致)
+    assert '成绩评定' in _report_text('md', paths['md'])
 
 
 @case
