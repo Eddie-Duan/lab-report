@@ -11,3 +11,6 @@ sample/
 .tmptmp/
 .wordtmp/
 _scratch/
+
+# 临时 MATLAB 调试产物
+t.mat
