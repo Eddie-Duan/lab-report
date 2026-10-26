@@ -366,6 +366,45 @@ def test_norm_date_and_group():
 
 
 @case
+def test_pdf_filename_and_rename():
+    # 课程规定的名字: 班级号-分组号-姓名-实验名-实验日期-教师姓名.pdf（见 SKILL.md §4.2.1）
+    assert mr.pdf_filename(_params()) == '1-04-张三-测量金属的杨氏模量-2026.09.26-李四.pdf'
+    assert mr.pdf_filename(_params(分班分组及座号='2班12组', 实验名称='温度测量实验',
+                                   实验日期='2026-09-29')) == \
+        '2-12-张三-温度测量-2026.09.29-李四.pdf', '班/组 + 结尾"实验"都要归一'
+    assert mr.pdf_filename(_params(实验名称='RLC 电路的谐振与暂态过程',
+                                   分班分组及座号='2 班 - 12 组',
+                                   实验日期='2026/9/6')) == \
+        '2-12-张三-RLC电路的谐振与暂态过程-2026.09.06-李四.pdf', '空格去掉, 月和日补零'
+    assert mr.pdf_filename(_params(指导教师='')) == '', '教师留空不许硬拼一个名字'
+    assert mr.pdf_missing(_params(指导教师='', 实验日期='')) == ['实验日期', '教师姓名']
+
+    root = TMP / 'pdfname'
+    r = mr.make(_params(), root)
+    data = Path(r['报告文件']).parent
+    assert r['PDF文件名'] == '1-04-张三-测量金属的杨氏模量-2026.09.26-李四.pdf'
+    meta = json.loads((data / '报告参数.json').read_text(encoding='utf-8'))
+    assert meta['PDF 文件名'] == r['PDF文件名'], '报告参数.json 里要能直接读到这个名字'
+
+    src = data / '实验报告.pdf'
+    src.write_bytes(b'%PDF-1.4 fake')
+    _, dst, action = mr.rename_pdf(src, _params())
+    assert action == 'renamed' and dst.name == r['PDF文件名'] and not src.exists()
+    assert mr.rename_pdf(dst, _params())[2] == 'already', '已经是这个名字就别再动'
+    src.write_bytes(b'%PDF-1.4 fake')
+    assert mr.rename_pdf(src, _params())[2] == 'duplicate' and not src.exists(), '内容一样就删重复的'
+    src.write_bytes(b'%PDF-1.5 fake')
+    _, dst2, action = mr.rename_pdf(src, _params())
+    assert action == 'uniqued' and dst2.name.endswith('-2.pdf') and dst.is_file(), '内容不同别覆盖'
+
+    src.write_bytes(b'%PDF-1.4 fake')
+    rc, out = capture(mr.main, ['--exp', '测量金属的杨氏模量', '--root', str(root),
+                                '--pdf-rename'])
+    assert rc == 0 and any(k in out for k in ('已改名', '已经是这个名字了', '重复')), out
+    assert not src.exists()
+
+
+@case
 def test_make_four_formats():
     root = TMP / 'gen'
     for fmt, fname in (('typst', '实验报告.typ'), ('latex', '实验报告.tex'),

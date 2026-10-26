@@ -196,6 +196,9 @@ def handoff_text(result: dict) -> str:
     """生成完要给 agent 的那段话: 把路径写全，免得它再问你一遍、也免得你自己想措辞。"""
     data = Path(result['报告文件']).parent          # <实验>/实验数据/
     meta = result['参数文件']
+    pdf = result.get('PDF文件名')
+    pdf_line = f'· 交上去的 PDF 名：{pdf}（编译完用 --pdf-rename 改成它）\n' if pdf else \
+        f'· 交上去的 PDF 名还差字段：{"、".join(result.get("PDF文件名缺") or [])}\n'
     if result.get('只更新报告头'):
         return ('用 lab-data-workflow skill：我刚刚在界面里改了报告头，'
                 f'字段新值在 {meta}（先读它），报告在 {data}。正文别动。')
@@ -203,6 +206,7 @@ def handoff_text(result: dict) -> str:
             f'· 报告头已填好，字段值在 {meta}（先读它，不用问我报告头）\n'
             f'· 实验数据目录：{data}\n'
             f'· 记录纸照片在 {data / "照片"}\n'
+            + pdf_line +
             '· 附录 A/B（预习报告、数据记录）已经排在骨架最后了，别删\n'
             '先按 SKILL.md §1 把照片逐张转录成原始数据 CSV（认不清的格子写 TODO，'
             '不要臆测，最后把 TODO 和你的疑问单列给我确认）；我确认后再往下做 §3。')

@@ -86,6 +86,67 @@ def safe_name(s, fallback='未命名'):
     return s or fallback
 
 
+# ---------------- 交上去那份 PDF 的文件名 ----------------
+# 课程规定: 班级号-分组号-姓名-实验名-实验日期-教师姓名.pdf
+# 例: 1-6-张三-光电探测-2026.09.21-李四.pdf   (见 SKILL.md §4.2.1)
+
+PDF_FIELDS = ('班级号', '分组号', '姓名', '实验名', '实验日期', '教师姓名')
+
+
+def clean_part(s):
+    """报告头字段 -> 文件名里的一格: 去空白, 去掉 Windows/Linux 都不认的字符。"""
+    s = re.sub(r'[\\/:*?"<>|\r\n\t]+', '', str(s or ''))
+    return re.sub(r'[\s\u3000]+', '', s)
+
+
+def split_enrol(s):
+    """分班分组及座号 -> (班级号, 分组号)。
+
+    '2-12' / '2 班 - 12 组' / '2班12组' / '1-04-5' 都认: 取前两段数字, 座号不进文件名。
+    原样保留前导零(课程范例里就写成 1-04组), 不替用户改数字。
+    """
+    nums = re.findall(r'\d+', clean_part(s))
+    if len(nums) >= 2:
+        return nums[0], nums[1]
+    if len(nums) == 1:
+        return nums[0], ''
+    return '', ''
+
+
+def short_exp_name(s):
+    """实验名: 去空格, 去掉结尾的"实验"二字(温度测量实验 -> 温度测量)。"""
+    t = clean_part(s)
+    while t.endswith('实验') and len(t) > 2:
+        t = t[:-2]
+    return t
+
+
+def pdf_parts(p: dict) -> dict:
+    _, (y, mo, d) = norm_date(p.get('实验日期'))
+    cls, grp = split_enrol(p.get('分班分组及座号'))
+    return {
+        '班级号': cls,
+        '分组号': grp,
+        '姓名': clean_part(p.get('姓名')),
+        '实验名': short_exp_name(p.get('实验名称')),
+        '实验日期': f'{y}.{int(mo):02d}.{int(d):02d}' if y and mo and d else '',
+        '教师姓名': clean_part(p.get('指导教师')),
+    }
+
+
+def pdf_missing(p: dict) -> list:
+    parts = pdf_parts(p)
+    return [k for k in PDF_FIELDS if not parts[k]]
+
+
+def pdf_filename(p: dict) -> str:
+    """拼文件名; 有字段是空的就返回 ''(调用方去问用户, 别拿"未填"顶上)。"""
+    if pdf_missing(p):
+        return ''
+    parts = pdf_parts(p)
+    return '-'.join(parts[k] for k in PDF_FIELDS) + '.pdf'
+
+
 def unique(path: Path) -> Path:
     """目标已存在就加 -2 / -3 …，绝不覆盖用户的东西。"""
     if not path.exists():
@@ -721,15 +782,49 @@ def make(params: dict, root: Path, force=False, copy_files=True, head_only=False
         '是否覆盖了已有报告': existed and not head_only,
         '注意': '报告头/分节版式是默认值；课程当年要求若不同，以用户上传或说明的为准（见 SKILL.md「材料优先级」）',
     })
+    pdf_name = pdf_filename(p)
+    if pdf_name:
+        meta['PDF 文件名'] = pdf_name            # 交上去那份叫什么, 见 SKILL.md §4.2.1
+    else:
+        meta['PDF 文件名缺'] = pdf_missing(p)     # 缺哪几格, 补了再算
     params_path = data_dir / '报告参数.json'
     params_path.write_text(json.dumps(meta, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
 
     return {
         'ok': True, '实验名称': exp, '输出格式': fmt, '只更新报告头': bool(head_only),
         '实验目录': str(exp_dir.resolve()), '报告文件': str(report.resolve()),
-        '参数文件': str(params_path.resolve()),
+        '参数文件': str(params_path.resolve()), 'PDF文件名': pdf_name,
+        'PDF文件名缺': pdf_missing(p),
         '归档': copied, '覆盖已有': existed and not head_only,
     }
+
+
+def rename_pdf(src, p):
+    """把编译出来的 PDF 改成课程规定的文件名, 返回 (src, dst, 动作)。
+
+    同名同内容 = 已经改好了, 顺手删掉重复那份(不然 -2 -3 越堆越多);
+    同名但内容不同 = 加 -2, 绝不覆盖用户的东西。
+    """
+    name = pdf_filename(p)
+    if not name:
+        raise ValueError('报告头字段不全, 拼不出文件名（缺 '
+                         + '、'.join(pdf_missing(p)) + '）: 先 --head-only 把字段补齐')
+    src = Path(src)
+    if not src.is_file():
+        raise FileNotFoundError(f'{src} 不存在 —— 先把报告编译成 PDF')
+    dst = src.with_name(name)
+    if dst.resolve() == src.resolve():
+        return src, dst, 'already'
+    if dst.exists():
+        if dst.stat().st_size == src.stat().st_size and dst.read_bytes() == src.read_bytes():
+            src.unlink()
+            return src, dst, 'duplicate'
+        dst = unique(dst)
+        action = 'uniqued'
+    else:
+        action = 'renamed'
+    src.replace(dst)
+    return src, dst, action
 
 
 def main(argv):
@@ -760,11 +855,35 @@ def main(argv):
     pick.add_argument('--force', action='store_true', help='覆盖已存在的报告文件')
     pick.add_argument('--head-only', action='store_true',
                       help='只更新报告头字段, 保留已写好的正文(两个选项互斥: 一个覆盖, 一个保留)')
+    ap.add_argument('--pdf-rename', nargs='?', const='', default=None, metavar='PDF',
+                    help='把编译出的 PDF 改成课程规定的名字(班级号-分组号-姓名-实验名-日期-教师.pdf); '
+                         '不给路径就是 实验数据/实验报告.pdf')
     a = ap.parse_args(argv)
 
     if a.list:
         for e in load_experiments():
             print(f"  {e['name']}\t{e.get('dir','')}\t{' '.join(e.get('aliases', []))}")
+        return 0
+
+    if a.pdf_rename is not None:
+        if not a.exp:
+            ap.error('--pdf-rename 要给 --exp（用来找那份 报告参数.json）')
+        try:
+            params = existing_params(a.exp, Path(a.root), a.dir_name)
+            if a.pdf_rename:
+                src = Path(a.pdf_rename)
+            elif params.get('实验目录'):
+                src = Path(params['实验目录']) / '实验数据' / '实验报告.pdf'
+            else:
+                src = target_dirs(params, Path(a.root))[1] / '实验报告.pdf'
+            src, dst, action = rename_pdf(src, params)
+        except Exception as e:
+            print(f'失败: {type(e).__name__}: {e}')
+            return 1
+        print({'renamed': '已改名', 'already': '已经是这个名字了',
+               'uniqued': '同名文件已存在（内容不同，没覆盖）',
+               'duplicate': '内容一样，重复的那份已删'}[action] + f'：{dst.name}')
+        print(f'  目录 {dst.parent}')
         return 0
 
     try:
@@ -807,6 +926,11 @@ def main(argv):
     print(f"  实验目录 {r['实验目录']}")
     print(f"  报告文件 {r['报告文件']}" + ('（覆盖了旧的）' if r['覆盖已有'] else ''))
     print(f"  参数文件 {r['参数文件']}")
+    if r['PDF文件名']:
+        print(f"  PDF 名 {r['PDF文件名']}   ← 编译完用 --pdf-rename 改成这个")
+    else:
+        print('  PDF 名 拼不出来，缺：' + '、'.join(r['PDF文件名缺'])
+              + '（补了字段再跑一次 --head-only）')
     for c in r['归档']:
         print(f'  归档 {c}')
     if r['只更新报告头']:

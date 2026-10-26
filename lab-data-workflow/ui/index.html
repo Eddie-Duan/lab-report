@@ -367,6 +367,8 @@ $('f').addEventListener('submit', async (ev) => {
         <ul>
           <li>报告：<code>${j['报告文件']}</code></li>
           <li>参数：<code>${j['参数文件']}</code></li>
+          ${j['PDF文件名'] ? `<li>交的 PDF 名：<code>${j['PDF文件名']}</code>（编译完用 <code>--pdf-rename</code> 改成它）</li>`
+            : `<li>交的 PDF 名还差：${(j['PDF文件名缺'] || []).join('、')}</li>`}
           ${files.length ? `<li>归档 ${files.length} 个附件：${files.map(f => '`' + f + '`').join('、')}</li>` : ''}
         </ul>
         <div class="next">${j['只更新报告头']

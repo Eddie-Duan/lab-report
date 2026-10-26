@@ -12,7 +12,7 @@
 | **1 转录** | 照片切块放大后逐个读数，认不清直接问用户 |
 | **2 核对** | 确认前不进入计算 |
 | **3 处理** | 生成 `处理.py`：零点修正、逐差法、不确定度传递、作图法／最小二乘法，并出图 |
-| **4 报告** | 把结果填进骨架，编译成 PDF |
+| **4 报告** | 把结果填进骨架，编译成 PDF，再改名成 `班级号-分组号-姓名-实验名-实验日期-教师姓名.pdf` |
 | **5 审阅** | 开 subagent 攻击**AI味文风** |
 
 ## 界面
@@ -45,6 +45,16 @@ Windows 上更省事：直接双击 **`lab-data-workflow/打开界面.cmd`** —
 生成成功后的结果里有**「复制以下文本到 DSH 中」**：一键复制一段已经把 `报告参数.json`、实验数据目录、
 照片目录的绝对路径写好的指令，直接粘进 agent 对话就能开工（换别的宿主 agent 也一样用）。
 
+交出去的 PDF **不叫 `实验报告.pdf`**：课程要求 `班级号-分组号-姓名-实验名-实验日期-教师姓名.pdf`
+（`1-6-张三-光电探测-2026.09.21-李四.pdf` 那套写法）。名字由报告头字段算出来，写在 `报告参数.json`
+的 `PDF 文件名` 里；编译完一条命令改名：
+
+```bash
+python lab-data-workflow/scripts/make_report.py --exp 测量金属的杨氏模量 --root <实验目录> --pdf-rename
+```
+
+细则与字段规整规则见 `SKILL.md` §4.2.1。
+
 ## 目录
 
 ```
@@ -57,7 +67,7 @@ lab-data-workflow/
   scripts/prep_photo.py    照片预处理：总览／转正／切半／裁切放大／去背景补光
   scripts/csv_tables.py    带分段标记的原始数据 CSV 读写
   scripts/to_utf8.py       GBK → UTF-8 BOM（解决 Excel 中文 CSV 乱码）
-  scripts/make_report.py   按参数生成报告骨架（typst/latex/docx/md）；--head-only 只改报告头不动正文
+  scripts/make_report.py   按参数生成报告骨架（typst/latex/docx/md）；--head-only 只改报告头不动正文；--pdf-rename 把编译好的 PDF 改成课程要求的名字
   scripts/selftest.py      上面这些的回归自测（31 个用例），改完跑一遍
   templates/report.typ     Typst 报告模板（三线表、公式编号、中文字体、报告头变量）
   templates/latex/main.tex LaTeX 报告模板（学长模板的导言区+报告头，正文清空）
